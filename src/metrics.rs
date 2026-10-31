@@ -7,7 +7,7 @@ use sysinfo::{
 
 pub const HISTORY: usize = 90;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub ppid: Option<u32>,
@@ -303,7 +303,9 @@ impl Sampler {
             disks,
             processes,
             uptime: System::uptime(),
-            host: System::host_name().unwrap_or_default(),
+            host: System::host_name()
+                .map(|h| h.trim_end_matches(".local").to_string())
+                .unwrap_or_default(),
             os: System::long_os_version().unwrap_or_default(),
             cpu_brand: self
                 .system

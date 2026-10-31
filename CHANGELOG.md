@@ -10,6 +10,7 @@ First public release.
 - Native macOS system monitor in Rust and GPUI with Liquid-Glass styling.
 - Processes: flat list, process tree (operating system vs. your processes, grouped by subsystem and owner app),
   owner, user and category grouping; per-branch memory sums; batch folding; keyboard navigation.
+- Dynamic filters: autocomplete chips for app, user, category and state, plus `cpu>` and `mem>` thresholds.
 - Configurable, reorderable, resizable columns with horizontal scrolling; app icons.
 - Right-click actions: quit, force quit (with children), suspend/resume, show in Finder, show connections, copy.
 - Overview, Users, Connections, Power, Startup items, Services, Installed apps, Disk space, Benchmarks,

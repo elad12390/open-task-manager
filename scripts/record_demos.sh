@@ -19,7 +19,7 @@ swiftc -O scripts/winid.swift -o "$WORK/winid"
 
 SCENES=("$@")
 if [[ ${#SCENES[@]} -eq 0 ]]; then
-  SCENES=(overview process-tree memory columns context-menu keyboard pages)
+  SCENES=(overview process-tree memory columns filters context-menu keyboard pages)
 fi
 
 for scene in "${SCENES[@]}"; do

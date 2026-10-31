@@ -12,6 +12,7 @@ use gpui::{
 use crate::{
     app::{OtmApp, Resize},
     columns::{ColumnId, GroupBy, TableLayout},
+    filter::Filter,
     metrics::{ProcessInfo, fmt_bytes},
     pages::Action,
     theme::Theme,
@@ -80,13 +81,6 @@ pub fn memory_text(own: u64, tree_memory: u64, descendants: usize, tree: bool) -
 /// Key in `collapsed` for a process node in a tree.
 pub fn node_key(pid: u32) -> String {
     format!("pid:{pid}")
-}
-
-fn matches(p: &ProcessInfo, q: &str) -> bool {
-    q.is_empty()
-        || p.name.to_lowercase().contains(q)
-        || p.user.to_lowercase().contains(q)
-        || p.pid.to_string().starts_with(q)
 }
 
 /// What a branch adds up to: the process itself plus everything under it.
@@ -442,12 +436,25 @@ pub fn build_rows(
     query: &str,
     collapsed: &HashSet<String>,
 ) -> Vec<Row> {
-    let q = query.to_lowercase();
+    build_rows_filtered(
+        processes,
+        layout,
+        &Filter::new(&[], query, processes),
+        collapsed,
+    )
+}
 
+/// [`build_rows`] with a full filter: free text plus chips.
+pub fn build_rows_filtered(
+    processes: &[ProcessInfo],
+    layout: &TableLayout,
+    filter: &Filter,
+    collapsed: &HashSet<String>,
+) -> Vec<Row> {
     if layout.group_by == GroupBy::None {
         let mut list: Vec<ProcessInfo> = processes
             .iter()
-            .filter(|p| matches(p, &q))
+            .filter(|p| filter.matches(p))
             .cloned()
             .collect();
         let (sort, desc) = (layout.sort, layout.descending);
@@ -473,7 +480,7 @@ pub fn build_rows(
     // Keep the matches plus every ancestor, so each match is shown in place in the tree.
     let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|p| (p.pid, p)).collect();
     let mut keep: HashSet<u32> = HashSet::new();
-    for p in processes.iter().filter(|p| matches(p, &q)) {
+    for p in processes.iter().filter(|p| filter.matches(p)) {
         let mut cur = Some(p);
         while let Some(c) = cur {
             if !keep.insert(c.pid) {
@@ -490,7 +497,7 @@ pub fn build_rows(
         .filter(|p| keep.contains(&p.pid))
         .cloned()
         .collect();
-    let expand_all = !q.is_empty();
+    let expand_all = filter.is_active();
     let mut rows = Vec::new();
 
     if layout.group_by == GroupBy::Category {
@@ -1038,99 +1045,154 @@ impl OtmApp {
     }
 
     pub fn rebuild_rows(&mut self) {
-        self.rows = Rc::new(build_rows(
+        let filter = Filter::new(&self.chips, &self.query, &self.snapshot.processes);
+        self.match_count = if filter.is_active() {
+            self.snapshot
+                .processes
+                .iter()
+                .filter(|p| filter.matches(p))
+                .count()
+        } else {
+            self.snapshot.processes.len()
+        };
+        self.rows = Rc::new(build_rows_filtered(
             &self.snapshot.processes,
             &self.layout,
-            &self.query,
+            &filter,
             &self.collapsed,
         ));
     }
 
     fn toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.snapshot.processes.len();
+        let subtitle = match &self.notice {
+            Some((msg, err)) => div()
+                .text_color(if *err { t.hot } else { t.good })
+                .child(msg.clone()),
+            None if self.filter_active() => div().text_color(t.text_dim).child(format!(
+                "{} of {count} processes match · Esc clears",
+                self.match_count
+            )),
+            None => div().text_color(t.text_dim).child(format!(
+                "{count} running · ↑↓ select · ←→ fold · drag headers to reorder"
+            )),
+        };
         div()
             .flex()
-            .flex_row()
-            .items_center()
+            .flex_col()
             .gap_3()
             .px_4()
             .pt_4()
             .pb_3()
+            // Title and the actions for the selection.
             .child(
                 div()
                     .flex()
-                    .flex_col()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
                     .child(
                         div()
-                            .text_xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Processes"),
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("Processes"),
+                            )
+                            .child(subtitle.text_xs().truncate()),
                     )
-                    .child(match &self.notice {
-                        Some((msg, err)) => div()
-                            .text_xs()
-                            .text_color(if *err { t.hot } else { t.good })
-                            .child(msg.clone()),
-                        None => div().text_xs().text_color(t.text_dim).child(format!(
-                            "{count} running · ↑↓ select · ←→ fold · drag headers to reorder"
-                        )),
-                    }),
+                    .when_some(self.selected, |d, pid| {
+                        d.child(ui::pill(t, "quit", "Quit", false).flex_shrink_0().on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.perform(Action::Signal(pid, false), cx)
+                            }),
+                        ))
+                        .child(
+                            ui::pill(t, "force-quit", "Force Quit", false)
+                                .flex_shrink_0()
+                                .text_color(t.hot)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.perform(Action::Signal(pid, true), cx)
+                                })),
+                        )
+                    })
+                    .child(
+                        ui::pill(t, "columns-btn", "Columns ▾", self.column_menu)
+                            .flex_shrink_0()
+                            .debug_selector(|| "columns-btn".into())
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, cx| {
+                                    // A press here while open already closed the menu as a click
+                                    // outside it; don't reopen it straight away.
+                                    if !std::mem::take(&mut this.column_menu_just_closed) {
+                                        this.column_menu = !this.column_menu;
+                                    }
+                                    cx.notify();
+                                }),
+                            ),
+                    ),
             )
-            .child(div().flex_1())
+            // Filter and grouping; the grouping wraps under the filter in a narrow window.
             .child(
                 div()
                     .flex()
                     .flex_row()
+                    .flex_wrap()
                     .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py(px(5.))
-                    .min_w(px(200.))
-                    .rounded_full()
-                    .bg(t.glass_strong)
-                    .border_1()
-                    .border_color(t.stroke)
+                    .gap_3()
+                    .child(self.filter_field(t, cx))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(div().text_xs().text_color(t.text_dim).child("Group"))
+                            .child(ui::segmented(t).children(GroupBy::ALL.map(|g| {
+                                ui::pill(t, g.label(), g.label(), self.layout.group_by == g)
+                                    .debug_selector(|| format!("group-{g:?}"))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.layout.group_by = g;
+                                        this.layout_changed(cx);
+                                    }))
+                            }))),
+                    ),
+            )
+    }
+
+    fn empty_state(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .absolute()
+            .top(px(170.))
+            .left_0()
+            .right_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("No processes match"),
+            )
+            .child(
+                div()
                     .text_xs()
-                    .child(div().text_color(t.text_faint).child("⌕"))
-                    .child(if self.query.is_empty() {
-                        div().text_color(t.text_faint).child("Type to filter")
-                    } else {
-                        div().text_color(t.text).child(format!("{}▏", self.query))
-                    }),
+                    .text_color(t.text_dim)
+                    .child("Try fewer filters, or a shorter search."),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(div().text_xs().text_color(t.text_dim).child("Group"))
-                    .child(ui::segmented(t).children(GroupBy::ALL.map(|g| {
-                        ui::pill(t, g.label(), g.label(), self.layout.group_by == g)
-                            .debug_selector(|| format!("group-{g:?}"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.layout.group_by = g;
-                                this.layout_changed(cx);
-                            }))
-                    }))),
-            )
-            .when_some(self.selected, |d, pid| {
-                d.child(ui::pill(t, "quit", "Quit", false).on_click(
-                    cx.listener(move |this, _, _, cx| this.perform(Action::Signal(pid, false), cx)),
-                ))
-                .child(
-                    ui::pill(t, "force-quit", "Force Quit", false)
-                        .text_color(t.hot)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.perform(Action::Signal(pid, true), cx)
-                        })),
-                )
-            })
-            .child(
-                ui::pill(t, "columns-btn", "Columns ▾", self.column_menu)
-                    .debug_selector(|| "columns-btn".into())
+                ui::pill(t, "empty-clear", "Clear filters", true)
+                    .debug_selector(|| "empty-clear".into())
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.column_menu = !this.column_menu;
+                        this.clear_filter();
                         cx.notify();
                     })),
             )
@@ -1153,6 +1215,11 @@ impl OtmApp {
             .rounded(px(16.))
             .shadow_lg()
             .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.column_menu = false;
+                this.column_menu_just_closed = true;
+                cx.notify();
+            }))
             .child(
                 div()
                     .px_2()
@@ -1269,7 +1336,12 @@ impl OtmApp {
                     .when(sorted, |d| d.text_color(t.accent))
                     .hover(|h| h.bg(t.glass_hover))
                     .rounded(px(6.))
-                    .child(div().truncate().child(format!("{}{arrow}", id.title())))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(format!("{}{arrow}", id.title())),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.layout.sort_by(id);
                         this.layout_changed(cx);
@@ -1483,6 +1555,7 @@ impl OtmApp {
                     .items_center()
                     .rounded(px(8.))
                     .text_sm()
+                    .cursor_default()
                     .when(ix % 2 == 1 && !selected, |d| d.bg(t.row_alt))
                     .when(selected, |d| d.bg(t.accent).text_color(gpui::white()))
                     .when(!selected, |d| d.hover(|h| h.bg(t.glass_hover)))
@@ -1496,6 +1569,7 @@ impl OtmApp {
                         div()
                             .flex_shrink_0()
                             .w(px(c.width))
+                            .overflow_hidden()
                             .px_2()
                             .flex()
                             .flex_row()
@@ -1550,7 +1624,35 @@ impl OtmApp {
                             .when(i == tree_col, |d| {
                                 d.child(self.icon_slot(bundle.as_deref()))
                             })
-                            .child(div().truncate().child(text))
+                            // Text columns end in "…" in what is left of the cell after the indent,
+                            // twisty, icon and badges. Numbers keep their right alignment.
+                            .child(div().flex_shrink_0().child(if c.id.numeric() {
+                                text
+                            } else {
+                                let lead = if is_tree_col {
+                                    depth as f32 * 14. + 14. + 8.
+                                } else {
+                                    0.
+                                } + if i == tree_col { 18. } else { 0. };
+                                let trail = if is_tree_col && collapsed {
+                                    16. + 7. * (descendants.to_string().len() + 1) as f32
+                                } else {
+                                    0.
+                                } + if c.id == ColumnId::Name
+                                    && info.is_self
+                                    && self.settings.mark_self
+                                {
+                                    64.
+                                } else {
+                                    0.
+                                };
+                                ui::ellipsize(
+                                    cx,
+                                    text,
+                                    c.width - 16. - lead - trail,
+                                    self.text_px(),
+                                )
+                            }))
                             .when(is_tree_col && collapsed, |d| {
                                 d.child(
                                     div()
@@ -1587,6 +1689,11 @@ impl OtmApp {
                     .into_any_element()
             }
         }
+    }
+
+    /// Size of `text_sm` (0.875 rem) at the chosen text scale.
+    pub(crate) fn text_px(&self) -> f32 {
+        14. * self.settings.text_scale as f32 / 100.
     }
 
     /// The column that carries the tree indent: Name if shown, otherwise the first visible column.
@@ -1656,6 +1763,10 @@ impl OtmApp {
                         )),
                 ),
             )
+            .when(
+                self.rows.is_empty() && self.filter_active() && !self.typing_to_suggestion(),
+                |d| d.child(self.empty_state(t, cx)),
+            )
             .when(self.column_menu, |d| d.child(self.column_menu(t, cx)))
             .when_some(self.context_menu.clone(), |d, (id, at)| {
                 d.child(deferred(
@@ -1668,7 +1779,7 @@ impl OtmApp {
     }
 
     /// A 14 px app icon (or an empty slot of the same width, so names stay aligned).
-    fn icon_slot(&self, bundle: Option<&str>) -> AnyElement {
+    pub(crate) fn icon_slot(&self, bundle: Option<&str>) -> AnyElement {
         match bundle.and_then(|b| self.icons.get(b)) {
             Some(path) => img(path.clone())
                 .size(px(14.))

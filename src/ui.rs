@@ -72,6 +72,22 @@ pub fn sparkline(
         }))
 }
 
+/// `text` shortened with "…" to fit `width` px in the system font at `font_size` px.
+///
+/// GPUI's own `truncate()` measures text before its box has a width inside flex rows and then keeps
+/// that measurement, so long cells were clipped mid-letter; this shortens the string up front.
+pub fn ellipsize(cx: &gpui::App, text: String, width: f32, font_size: f32) -> String {
+    if width <= 0. {
+        return String::new();
+    }
+    let mut wrapper = cx
+        .text_system()
+        .line_wrapper(gpui::font(".SystemUIFont"), px(font_size));
+    wrapper
+        .truncate_line(text.into(), px(width), "…", &mut Vec::new())
+        .to_string()
+}
+
 pub fn meter(t: &Theme, pct: f32, color: Hsla) -> Div {
     div().h(px(6.)).w_full().rounded_full().bg(t.stroke).child(
         div()

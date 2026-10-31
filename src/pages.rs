@@ -92,6 +92,7 @@ impl OtmApp {
         self.page = page;
         self.listing = Listing::default();
         self.query.clear();
+        self.blur_filter();
         self.column_menu = false;
         self.confirm_trash = None;
         self.load_page(cx);
@@ -399,24 +400,55 @@ impl OtmApp {
             )
     }
 
-    fn filter_chip(&self, t: &Theme) -> Div {
+    fn filter_chip(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
+        let focused = self.filter_focused;
         div()
+            .id("page-filter")
+            .debug_selector(|| "page-filter".into())
             .mx_4()
             .mb_2()
             .px_3()
-            .py(px(5.))
-            .w(px(260.))
+            .h(px(30.))
+            .w(px(280.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .overflow_hidden()
             .rounded_full()
             .bg(t.glass_strong)
             .border_1()
-            .border_color(t.stroke)
-            .text_xs()
-            .child(if self.query.is_empty() {
-                div().text_color(t.text_faint).child("⌕  Type to filter")
-            } else {
+            .border_color(if focused { t.accent } else { t.stroke })
+            .cursor(gpui::CursorStyle::IBeam)
+            .text_sm()
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.focus_filter();
+                    window.focus(&this.focus);
+                    cx.notify();
+                }),
+            )
+            .child(
                 div()
-                    .text_color(t.text)
-                    .child(format!("⌕  {}▏", self.query))
+                    .flex_shrink_0()
+                    .text_color(if focused { t.accent } else { t.text_faint })
+                    .child("⌕"),
+            )
+            .when(!self.query.is_empty(), |d| {
+                d.child(div().flex_shrink_0().child(self.query.clone()))
+            })
+            .when(focused, |d| {
+                d.child(crate::filter_bar::caret(t, self.caret_on))
+            })
+            .when(self.query.is_empty(), |d| {
+                d.child(
+                    div()
+                        .truncate()
+                        .text_color(t.text_faint)
+                        .child("Type to filter  ⌘F"),
+                )
             })
     }
 
@@ -459,7 +491,7 @@ impl OtmApp {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .child(self.filter_chip(t))
+                    .child(self.filter_chip(t, cx))
                     .child(div().mb_2().text_xs().text_color(t.text_dim).child(
                         if self.listing.headers.is_empty() {
                             "Loading…".to_string()
@@ -545,10 +577,15 @@ impl OtmApp {
             .hover(|h| h.bg(t.glass_hover))
             .when(r.dim, |d| d.text_color(t.text_dim))
             .children(r.cells.iter().zip(widths).enumerate().map(|(i, (c, w))| {
-                cell(i + 1 == widths.len(), *w)
+                let last = i + 1 == widths.len();
+                cell(last, *w)
                     .truncate()
                     .when(i > 0, |d| d.text_color(t.text_dim))
-                    .child(c.clone())
+                    .child(if last {
+                        c.to_string()
+                    } else {
+                        crate::ui::ellipsize(cx, c.to_string(), *w - 16., self.text_px())
+                    })
             }))
             .when(
                 self.listing.rows.iter().any(|r| !r.actions.is_empty()),

@@ -3,6 +3,8 @@ mod categories;
 mod columns;
 mod context_menu;
 mod demo;
+mod filter;
+mod filter_bar;
 mod icons;
 mod menus;
 mod metrics;

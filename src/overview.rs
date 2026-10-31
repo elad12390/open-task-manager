@@ -174,7 +174,7 @@ impl OtmApp {
                         .flex_row()
                         .text_sm()
                         .child(div().w(px(130.)).text_color(t.text_dim).child(k))
-                        .child(div().truncate().child(v))
+                        .child(div().min_w_0().truncate().child(v))
                 };
                 let booted = crate::sysops::now_secs().saturating_sub(i.booted);
                 div()

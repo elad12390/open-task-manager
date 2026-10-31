@@ -416,14 +416,14 @@ impl OtmApp {
         .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
         .on_action(cx.listener(|this, _: &CopySelected, _, cx| this.copy_selected(cx)))
         .on_action(cx.listener(|this, _: &Find, _, cx| {
-            this.open_page(Page::Processes, cx);
-            this.notice = Some(("Type to filter processes · Esc clears".into(), false));
+            if !this.page.filterable() {
+                this.open_page(Page::Processes, cx);
+            }
+            this.focus_filter();
             cx.notify();
         }))
         .on_action(cx.listener(|this, _: &ClearFilter, _, cx| {
-            this.query.clear();
-            this.rebuild_rows();
-            this.rebuild_listing();
+            this.clear_filter();
             cx.notify();
         }))
         .on_action(cx.listener(|this, _: &GroupNone, _, cx| this.set_group(GroupBy::None, cx)))

@@ -95,7 +95,7 @@ impl Page {
         }
     }
 
-    fn filterable(self) -> bool {
+    pub fn filterable(self) -> bool {
         matches!(
             self,
             Page::Processes | Page::Startup | Page::Services | Page::Connections | Page::Apps
@@ -116,10 +116,23 @@ pub struct OtmApp {
     pub settings: Settings,
     pub page: Page,
     pub query: String,
+    /// Process filter chips (app, user, category, state, CPU, memory) that apply with `query`.
+    pub chips: Vec<crate::filter::Chip>,
+    /// The filter field has focus: it shows a caret and, while `suggest_open`, its suggestions.
+    pub filter_focused: bool,
+    pub suggest_open: bool,
+    /// Highlighted suggestion.
+    pub suggest_ix: usize,
+    /// Caret blink phase.
+    pub caret_on: bool,
+    /// Processes that match the filter (shown in the subtitle while filtering).
+    pub match_count: usize,
     pub collapsed: HashSet<String>,
     pub rows: Rc<Vec<Row>>,
     pub resizing: Option<Resize>,
     pub column_menu: bool,
+    /// The press that is in progress closed the Columns menu (see the Columns button).
+    pub column_menu_just_closed: bool,
     pub selected: Option<u32>,
     /// Keyboard cursor: a process or a group row.
     pub cursor: Option<crate::processes::RowId>,
@@ -257,10 +270,17 @@ impl OtmApp {
             settings: Settings::load(),
             page: Page::Processes,
             query: String::new(),
+            chips: Vec::new(),
+            filter_focused: false,
+            suggest_open: false,
+            suggest_ix: 0,
+            caret_on: true,
+            match_count: 0,
             collapsed: HashSet::new(),
             rows: Rc::new(Vec::new()),
             resizing: None,
             column_menu: false,
+            column_menu_just_closed: false,
             selected: None,
             cursor: None,
             focus,
@@ -294,6 +314,7 @@ impl OtmApp {
             demo_removed: Vec::new(),
             demo_caption: None,
         };
+        app.start_caret_blink(cx);
         if let Some(scene) = demo {
             app.demo_mode = true;
             app.start_demo(scene, cx);
@@ -342,6 +363,46 @@ impl OtmApp {
 
     fn on_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
+        // The suggestions panel takes ↑↓, ⏎/⇥ and Esc while it is open.
+        if self.page == Page::Processes
+            && self.filter_focused
+            && self.suggest_open
+            && !k.modifiers.platform
+            && !k.modifiers.control
+            && !k.modifiers.alt
+        {
+            let handled = match k.key.as_str() {
+                key @ ("down" | "up" | "enter" | "tab") => {
+                    let suggestions = self.suggestions();
+                    let n = suggestions.len();
+                    if n == 0 {
+                        // Nothing to pick: Enter just closes the panel to show the results.
+                        self.suggest_open = !matches!(key, "enter" | "tab");
+                        key == "enter" || key == "tab"
+                    } else {
+                        match key {
+                            "down" => self.suggest_ix = (self.suggest_ix + 1) % n,
+                            "up" => self.suggest_ix = (self.suggest_ix + n - 1) % n,
+                            _ => {
+                                self.add_chip(suggestions[self.suggest_ix.min(n - 1)].chip.clone())
+                            }
+                        }
+                        true
+                    }
+                }
+                "escape" => {
+                    self.suggest_open = false;
+                    true
+                }
+                _ => false,
+            };
+            if handled {
+                self.caret_on = true;
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
+        }
         if self.page == Page::Processes && !k.modifiers.control {
             let nav = match (k.key.as_str(), k.modifiers.platform) {
                 ("right", false) if k.modifiers.alt => Some(Nav::ExpandAll),
@@ -380,20 +441,43 @@ impl OtmApp {
                 return;
             }
             "escape" => {
-                self.query.clear();
+                // Esc clears the filter first, and leaves the field once it is empty.
+                if self.filter_active() {
+                    self.query.clear();
+                    self.chips.clear();
+                } else {
+                    self.blur_filter();
+                }
                 self.column_menu = false;
                 self.confirm_trash = None;
             }
+            "backspace" if self.query.is_empty() => {
+                if self.chips.pop().is_none() {
+                    return;
+                }
+            }
+            "backspace" if k.modifiers.alt => {
+                // ⌥⌫ deletes the last word.
+                let kept = self.query.trim_end().len();
+                let cut = self.query[..kept]
+                    .rfind(|c: char| c.is_whitespace() || c == ':' || c == '>')
+                    .map_or(0, |i| i + 1);
+                self.query.truncate(cut);
+                self.focus_filter();
+            }
             "backspace" => {
                 self.query.pop();
+                self.focus_filter();
             }
             _ => match &k.key_char {
                 Some(ch) if self.page.filterable() && !ch.chars().any(char::is_control) => {
-                    self.query.push_str(ch)
+                    self.query.push_str(ch);
+                    self.focus_filter();
                 }
                 _ => return,
             },
         }
+        self.suggest_ix = 0;
         self.query_changed();
         cx.notify();
     }
@@ -411,6 +495,7 @@ impl OtmApp {
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.column_menu_just_closed = false;
         if self.resizing.take().is_some() {
             self.layout_changed(cx);
         }
@@ -600,6 +685,16 @@ impl Render for OtmApp {
             .on_key_down(cx.listener(Self::on_key))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            // A click anywhere outside the filter field leaves it (the field stops this event).
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.filter_focused {
+                        this.blur_filter();
+                        cx.notify();
+                    }
+                }),
+            )
             .size_full()
             .flex()
             .flex_row()

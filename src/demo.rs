@@ -9,6 +9,7 @@ use gpui::{Context, point, px};
 use crate::{
     app::{OtmApp, Page},
     columns::{ColumnId, GroupBy},
+    filter::Chip,
     metrics::{DiskInfo, ProcessInfo, Snapshot},
     processes::{Nav, Row, RowId},
     sysops::{
@@ -17,11 +18,12 @@ use crate::{
     },
 };
 
-pub const SCENES: [&str; 7] = [
+pub const SCENES: [&str; 8] = [
     "overview",
     "process-tree",
     "memory",
     "columns",
+    "filters",
     "context-menu",
     "keyboard",
     "pages",
@@ -1060,6 +1062,67 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
             step(1200, key(Nav::End, "End  jump to the bottom")),
             step(1200, key(Nav::Home, "Home  back to the top")),
         ],
+        "filters" => vec![
+            step(1800, |app: &mut OtmApp, cx: &mut Context<OtmApp>| {
+                group(GroupBy::None, "Filter with chips: type, pick, combine")(app, cx);
+                app.layout.sort = ColumnId::Cpu;
+                app.layout.descending = true;
+                app.rebuild_rows();
+                app.focus_filter();
+            }),
+            step(
+                350,
+                typed(
+                    "g",
+                    "Suggestions as you type: apps, users, categories, states",
+                ),
+            ),
+            step(
+                350,
+                typed(
+                    "go",
+                    "Suggestions as you type: apps, users, categories, states",
+                ),
+            ),
+            step(
+                1800,
+                typed(
+                    "goo",
+                    "Suggestions as you type: apps, users, categories, states",
+                ),
+            ),
+            step(1000, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+                app.add_chip(Chip::App("Google Chrome".into()));
+                app.focus_filter();
+                app.demo_caption = Some("⏎ turns it into a chip".into());
+            }),
+            step(
+                350,
+                typed("f", "Chips of one kind widen: Chrome or Firefox"),
+            ),
+            step(
+                1300,
+                typed("fi", "Chips of one kind widen: Chrome or Firefox"),
+            ),
+            step(1300, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+                app.add_chip(Chip::App("Firefox".into()));
+                app.focus_filter();
+            }),
+            step(1700, typed("cpu", "cpu> and mem> add thresholds")),
+            step(1000, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+                app.suggest_ix = 1
+            }),
+            step(2800, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+                app.add_chip(Chip::CpuAbove(5.));
+                app.blur_filter();
+                app.demo_caption =
+                    Some("Different kinds narrow: Chrome or Firefox, above 5% CPU".into());
+            }),
+            step(1800, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+                app.clear_filter();
+                app.demo_caption = Some("Esc clears everything".into());
+            }),
+        ],
         "pages" => vec![
             step(
                 1900,
@@ -1102,6 +1165,16 @@ fn open_menu_at(app: &mut OtmApp, id: RowId) {
     let ix = app.row_index(&id);
     app.scroll.scroll_to_item(ix, gpui::ScrollStrategy::Top);
     app.context_menu = Some((id, point(px(420.), px(172.))));
+}
+
+fn typed(text: &'static str, caption: &'static str) -> impl Fn(&mut OtmApp, &mut Context<OtmApp>) {
+    move |app, _| {
+        app.query = text.into();
+        app.suggest_ix = 0;
+        app.focus_filter();
+        app.rebuild_rows();
+        app.demo_caption = Some(caption.into());
+    }
 }
 
 fn widen(id: ColumnId, width: f32) -> impl Fn(&mut OtmApp, &mut Context<OtmApp>) {

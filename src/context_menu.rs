@@ -8,6 +8,7 @@ use gpui::{ClipboardItem, Context, FontWeight, div, prelude::*, px};
 use crate::{
     app::{OtmApp, Page},
     categories::OS_OWNER,
+    filter::Chip,
     icons::bundle_of,
     metrics::fmt_bytes,
     processes::{RowId, node_key},
@@ -24,6 +25,7 @@ pub enum Cmd {
     },
     Reveal(String),
     Connections(String),
+    FilterApp(String),
     Copy(String),
     Fold(RowId),
 }
@@ -147,6 +149,13 @@ impl OtmApp {
                     items.push(item("Show App in Finder", Cmd::Reveal(bundle)));
                 }
                 items.push(item("Show Connections", Cmd::Connections(p.name.clone())));
+                if !p.owner_app.is_empty() && !self.chips.contains(&Chip::App(p.owner_app.clone()))
+                {
+                    items.push(item(
+                        format!("Filter to {}", p.owner_app),
+                        Cmd::FilterApp(p.owner_app.clone()),
+                    ));
+                }
                 items.push(separator());
                 items.push(item("Copy PID", Cmd::Copy(p.pid.to_string())));
                 items.push(Item {
@@ -278,6 +287,7 @@ impl OtmApp {
                 self.open_page(Page::Connections, cx);
                 self.query = name;
             }
+            Cmd::FilterApp(app) => self.add_chip(Chip::App(app)),
             Cmd::Copy(text) => {
                 self.notice = Some((
                     format!("Copied {}", text.lines().next().unwrap_or_default()),

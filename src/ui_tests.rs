@@ -1008,3 +1008,145 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
     assert_eq!((saved.refresh_secs, saved.text_scale), (5, 115));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// The filter field: a caret when focused, suggestions while typing, chips from Enter, ⌫ and Esc,
+/// and a toolbar that fits the narrowest window.
+#[gpui::test]
+fn filter_field_chips_and_toolbar(cx: &mut TestAppContext) {
+    use crate::filter::Chip;
+    use crate::processes::Row;
+    use std::time::Duration;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("otm-ui-filter-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // SAFETY: single-threaded test setup before any app code reads the variable.
+    unsafe { std::env::set_var("OTM_DATA_DIR", &dir) };
+
+    let (view, cx) = cx.add_window_view(OtmApp::new);
+    cx.executor().advance_clock(Duration::from_millis(1500));
+    cx.run_until_parked();
+    view.update(cx, |app, cx| {
+        app.layout.group_by = GroupBy::None;
+        app.rebuild_rows();
+        cx.notify();
+    });
+    let total = view.read_with(cx, |app, _| app.snapshot.processes.len());
+    assert!(
+        total > 10,
+        "the live snapshot is loaded ({total} processes)"
+    );
+
+    // Clicking the field focuses it: caret, focus ring, and the "filter by" suggestions.
+    click(cx, "filter-field");
+    assert!(view.read_with(cx, |app, _| app.filter_focused && app.suggest_open));
+    assert!(
+        cx.debug_bounds("filter-suggestions").is_some(),
+        "suggestions are drawn"
+    );
+    let blink = view.read_with(cx, |app, _| app.caret_on);
+    cx.executor().advance_clock(Duration::from_millis(600));
+    cx.run_until_parked();
+    assert_ne!(
+        view.read_with(cx, |app, _| app.caret_on),
+        blink,
+        "the caret blinks"
+    );
+
+    // Typing narrows the suggestions; Enter turns the first one into a chip.
+    cx.simulate_input("root");
+    let first = view.read_with(cx, |app, _| app.suggestions()[0].chip.clone());
+    println!("first suggestion for \"root\": {first:?}");
+    assert_eq!(first, Chip::User("root".into()));
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let (chips, query, users) = view.read_with(cx, |app, _| {
+        let users: std::collections::HashSet<String> = app
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Process { info, .. } => Some(info.user.clone()),
+                _ => None,
+            })
+            .collect();
+        (app.chips.clone(), app.query.clone(), users)
+    });
+    println!("chips {chips:?}, rows by users {users:?}");
+    assert_eq!(chips, vec![Chip::User("root".into())]);
+    assert!(query.is_empty(), "the typed text became the chip");
+    assert_eq!(
+        users.into_iter().collect::<Vec<_>>(),
+        vec!["root".to_string()]
+    );
+    assert!(
+        cx.debug_bounds("filter-chip-0").is_some(),
+        "the chip is drawn"
+    );
+
+    // ⌫ on an empty field removes the last chip.
+    cx.simulate_keystrokes("backspace");
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |app, _| app.chips.is_empty()));
+
+    // Numeric filters: "cpu" offers thresholds.
+    cx.simulate_input("cpu");
+    let first = view.read_with(cx, |app, _| app.suggestions()[0].chip.clone());
+    assert_eq!(first, Chip::CpuAbove(1.));
+
+    // Esc closes the panel, then clears the text, then leaves the field.
+    cx.simulate_keystrokes("escape");
+    assert!(view.read_with(cx, |app, _| !app.suggest_open && app.query == "cpu"));
+    cx.simulate_keystrokes("escape");
+    assert!(view.read_with(cx, |app, _| app.query.is_empty() && app.filter_focused));
+    cx.simulate_keystrokes("escape");
+    assert!(view.read_with(cx, |app, _| !app.filter_focused));
+
+    // A filter that matches nothing shows the empty state, and its button clears the filter.
+    cx.simulate_input("zzzz-no-such-process");
+    assert!(view.read_with(cx, |app, _| app.rows.is_empty()));
+    view.update(cx, |app, cx| {
+        app.suggest_open = false;
+        cx.notify();
+    });
+    click(cx, "empty-clear");
+    assert!(view.read_with(cx, |app, _| !app.filter_active() && !app.rows.is_empty()));
+
+    // Clicking a row leaves the field.
+    click(cx, "filter-field");
+    view.update(cx, |app, cx| {
+        app.suggest_open = false;
+        cx.notify();
+    });
+    let pid = view.read_with(cx, |app, _| match &app.rows[0] {
+        Row::Process { info, .. } => info.pid,
+        _ => unreachable!(),
+    });
+    let row: &'static str = Box::leak(format!("proc-row-{pid}").into_boxed_str());
+    click(cx, row);
+    assert!(view.read_with(cx, |app, _| !app.filter_focused));
+
+    // The Columns button toggles its menu, and a click anywhere else closes it.
+    click(cx, "columns-btn");
+    assert!(view.read_with(cx, |app, _| app.column_menu));
+    click(cx, "columns-btn");
+    assert!(
+        view.read_with(cx, |app, _| !app.column_menu),
+        "the button closes it again"
+    );
+    click(cx, "columns-btn");
+    click(cx, row);
+    assert!(
+        view.read_with(cx, |app, _| !app.column_menu),
+        "a click outside closes it"
+    );
+
+    // At the minimum window size the toolbar stays inside the window.
+    cx.simulate_resize(gpui::size(px(860.), px(560.)));
+    cx.run_until_parked();
+    for selector in ["columns-btn", "group-Category", "filter-field"] {
+        let b = bounds(cx, selector);
+        println!("{selector}: {:?}..{:?}", b.left(), b.right());
+        assert!(b.right() <= px(860.), "{selector} overflows the window");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

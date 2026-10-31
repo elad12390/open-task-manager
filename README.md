@@ -59,6 +59,7 @@ cargo run --release              # run it
 - **Processes** as a flat list, a **process tree** (with the operating system's processes and yours in separate
   branches, grouped by subsystem and by owning app), by **owner app**, by **user account**, or by **category**.
 - **Memory sums per branch** (Σ) so you can see what a whole app with all its helpers costs.
+- **Dynamic filters** with autocomplete: chips for app, user, category, state, CPU and memory thresholds.
 - **Configurable columns**: show/hide, reorder by dragging, resize, sort; scroll sideways to reach every column.
 - **App icons** next to processes and owner groups.
 - **Right-click actions**: Quit, Force Quit, Force Quit with children, Suspend/Resume, Show in Finder,
@@ -91,6 +92,14 @@ everything inside it; unfolding opens one level at a time.
 Show and hide columns, drag headers to reorder, drag edges to resize, and scroll sideways. The layout is saved.
 
 <img src="assets/demo/columns.gif" width="100%" alt="Showing, reordering and resizing columns">
+
+### Dynamic filters
+
+Type and pick from suggestions to add chips for an app, user, category or state, or a threshold like `cpu>5` or
+`mem>1g`. Chips of the same kind widen the filter (Chrome *or* Firefox); different kinds narrow it (and above 5% CPU).
+<kbd>⌘F</kbd> to focus, <kbd>⏎</kbd> to add, <kbd>⌫</kbd> to remove the last chip, <kbd>Esc</kbd> to clear.
+
+<img src="assets/demo/filters.gif" width="100%" alt="Adding app and CPU filter chips from autocomplete suggestions">
 
 ### Right-click actions
 
@@ -133,7 +142,7 @@ to run the benchmarks and `--scan` to run a home-folder disk scan.
 ### Demo mode and the GIFs
 
 `otm --demo <scene>` shows a fictional Mac and plays a scripted tour, then quits. Nothing is read from your system
-and no real process is ever signalled. Scenes: `overview`, `process-tree`, `memory`, `columns`, `context-menu`,
+and no real process is ever signalled. Scenes: `overview`, `process-tree`, `memory`, `columns`, `filters`, `context-menu`,
 `keyboard`, `pages`.
 
 `scripts/record_demos.sh [scene…]` records the scenes into `assets/demo/*.gif`. It needs `ffmpeg`, optionally
