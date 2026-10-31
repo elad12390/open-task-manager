@@ -16,3 +16,6 @@ First public release.
 - Overview, Users, Connections, Power, Startup items, Services, Installed apps, Disk space, Benchmarks,
   Flight recorder, Settings, popout and screensaver.
 - Menu bar with update-speed controls and shortcuts.
+- A filter field with a caret and focus ring (⌘F), match counts while filtering, and an empty state with
+  Clear filters; a two-row toolbar that never overflows; long names end in "…".
+- `otm --demo <scene>`: a fictional Mac for screenshots and recordings; nothing real is read or signalled.
