@@ -153,6 +153,11 @@ pub struct OtmApp {
     pub listing_scroll: UniformListScrollHandle,
     /// The press that is in progress closed the Columns menu (see the Columns button).
     pub column_menu_just_closed: bool,
+    pub group_menu: bool,
+    /// The press that is in progress closed the Group menu (see the Group button).
+    pub group_menu_just_closed: bool,
+    /// A scrollbar thumb held down (see `scrollbar`).
+    pub thumb_drag: Option<crate::scrollbar::ThumbDrag>,
     pub selected: Option<u32>,
     /// Keyboard cursor: a process or a group row.
     pub cursor: Option<crate::processes::RowId>,
@@ -347,6 +352,9 @@ impl OtmApp {
             listing_loading: false,
             listing_scroll: UniformListScrollHandle::new(),
             column_menu_just_closed: false,
+            group_menu: false,
+            group_menu_just_closed: false,
+            thumb_drag: None,
             selected: None,
             cursor: None,
             focus,
@@ -533,6 +541,7 @@ impl OtmApp {
             };
             if let Some(nav) = nav {
                 self.column_menu = false;
+                self.group_menu = false;
                 self.navigate_processes(nav);
                 cx.stop_propagation();
                 cx.notify();
@@ -552,6 +561,11 @@ impl OtmApp {
                 cx.notify();
                 return;
             }
+            "escape" if self.group_menu => {
+                self.group_menu = false;
+                cx.notify();
+                return;
+            }
             "escape" => {
                 // Esc clears the filter first, and leaves the field once it is empty.
                 if self.filter_active() {
@@ -562,6 +576,7 @@ impl OtmApp {
                     self.blur_filter();
                 }
                 self.column_menu = false;
+                self.group_menu = false;
                 self.confirm_trash = None;
             }
             "backspace" if self.query.is_empty() => {
@@ -601,6 +616,15 @@ impl OtmApp {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(drag) = self.thumb_drag.clone() {
+            if ev.pressed_button == Some(MouseButton::Left) {
+                drag.drag_to(ev.position);
+                cx.notify();
+            } else {
+                self.thumb_drag = None;
+            }
+            return;
+        }
         let Some(r) = &self.resizing else { return };
         if ev.pressed_button != Some(MouseButton::Left) {
             self.resizing = None;
@@ -614,6 +638,8 @@ impl OtmApp {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.column_menu_just_closed = false;
+        self.group_menu_just_closed = false;
+        self.thumb_drag = None;
         if self.resizing.take().is_some() {
             self.layout_changed(cx);
         }

@@ -1,5 +1,6 @@
 mod app;
 mod categories;
+mod column_fit;
 mod columns;
 mod context_menu;
 #[cfg(test)]
@@ -16,11 +17,14 @@ mod overview;
 mod pages;
 mod processes;
 mod recorder;
+mod scrollbar;
 mod selftest;
 mod settings;
 mod sysops;
 #[cfg(test)]
 mod table_icons_tests;
+#[cfg(test)]
+mod table_ux_tests;
 mod tables;
 mod theme;
 mod ui;
