@@ -57,7 +57,7 @@ for scene in "${SCENES[@]}"; do
 
   fps=$(echo "$n / ($end - $start)" | bc -l)
   ffmpeg -loglevel error -y -framerate "$fps" -i "$frames/f%05d.png" \
-    -vf "fps=8,scale=760:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
+    -vf "fps=8,scale=1240:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
     "$OUT/$scene.gif"
   if command -v gifsicle >/dev/null; then
     gifsicle -O3 --lossy=60 --batch "$OUT/$scene.gif"

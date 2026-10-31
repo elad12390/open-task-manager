@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo/overview.gif" width="760" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
+  <img src="assets/demo/overview.gif" width="100%" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
 </p>
 
 <sub>All recordings use the app's demo mode, which shows a fictional Mac.</sub>
@@ -78,38 +78,38 @@ cargo run --release              # run it
 launchd at the root, with the operating system's processes and yours in separate branches. Folding a branch folds
 everything inside it; unfolding opens one level at a time.
 
-<img src="assets/demo/process-tree.gif" width="760" alt="Folding and unfolding the process tree">
+<img src="assets/demo/process-tree.gif" width="100%" alt="Folding and unfolding the process tree">
 
 ### Memory per app
 
 Σ adds up an app and every helper it runs, in the app grouping and on every branch of the tree.
 
-<img src="assets/demo/memory.gif" width="760" alt="Memory summed per app and per branch">
+<img src="assets/demo/memory.gif" width="100%" alt="Memory summed per app and per branch">
 
 ### Your columns
 
 Show and hide columns, drag headers to reorder, drag edges to resize, and scroll sideways. The layout is saved.
 
-<img src="assets/demo/columns.gif" width="760" alt="Showing, reordering and resizing columns">
+<img src="assets/demo/columns.gif" width="100%" alt="Showing, reordering and resizing columns">
 
 ### Right-click actions
 
 Quit, force quit, suspend, reveal in Finder, show connections or copy details, for one process or a whole app.
 
-<img src="assets/demo/context-menu.gif" width="760" alt="The right-click menu and force quitting a process">
+<img src="assets/demo/context-menu.gif" width="100%" alt="The right-click menu and force quitting a process">
 
 ### Keyboard first
 
 <kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>←</kbd> <kbd>→</kbd> to fold and unfold, <kbd>Space</kbd> to toggle,
 <kbd>⌥</kbd><kbd>→</kbd> to open a whole branch, <kbd>Home</kbd> / <kbd>End</kbd> to jump.
 
-<img src="assets/demo/keyboard.gif" width="760" alt="Navigating the process tree with the keyboard">
+<img src="assets/demo/keyboard.gif" width="100%" alt="Navigating the process tree with the keyboard">
 
 ### Everything else
 
 Startup items, services, connections, installed apps, disk space, power, benchmarks, users and settings.
 
-<img src="assets/demo/pages.gif" width="760" alt="A tour of the other pages">
+<img src="assets/demo/pages.gif" width="100%" alt="A tour of the other pages">
 
 ## Privacy
 
