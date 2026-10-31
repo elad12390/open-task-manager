@@ -681,16 +681,20 @@ impl OtmApp {
                             .flex_row()
                             .gap_1()
                             .pt_1()
-                            .child(ui::pill(t, "open-popout", "Popout", false).on_click(
-                                cx.listener(|_, _, _, cx| {
-                                    Popout::open(cx.entity(), cx);
-                                }),
-                            ))
-                            .child(ui::pill(t, "open-saver", "Screensaver", false).on_click(
-                                cx.listener(|_, _, _, cx| {
-                                    Saver::open(cx.entity(), cx);
-                                }),
-                            )),
+                            .child(
+                                ui::pill(t, "open-popout", "Popout", false)
+                                    .debug_selector(|| "open-popout".into())
+                                    .on_click(cx.listener(|_, _, _, cx| {
+                                        Popout::open(cx.entity(), cx);
+                                    })),
+                            )
+                            .child(
+                                ui::pill(t, "open-saver", "Screensaver", false)
+                                    .debug_selector(|| "open-saver".into())
+                                    .on_click(cx.listener(|_, _, _, cx| {
+                                        Saver::open(cx.entity(), cx);
+                                    })),
+                            ),
                     ),
             )
     }

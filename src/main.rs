@@ -2,6 +2,8 @@ mod app;
 mod categories;
 mod columns;
 mod context_menu;
+#[cfg(test)]
+mod crash_fix_tests;
 mod demo;
 mod filter;
 mod filter_bar;

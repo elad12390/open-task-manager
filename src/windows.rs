@@ -1,9 +1,9 @@
 //! Secondary windows: the full-screen system-load screensaver and the always-on-top popout.
 
 use gpui::{
-    App, Bounds, Context, Entity, FocusHandle, FontWeight, KeyDownEvent, MouseButton, Render,
-    Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowKind,
-    WindowOptions, div, point, prelude::*, px, rgba, size,
+    AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent,
+    MouseButton, Render, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowKind, WindowOptions, div, point, prelude::*, px, rgba, size,
 };
 
 use crate::{
@@ -14,6 +14,14 @@ use crate::{
     ui,
 };
 
+#[derive(Default)]
+struct SecondaryWindows {
+    popout: Option<AnyWindowHandle>,
+    saver: Option<AnyWindowHandle>,
+}
+
+impl Global for SecondaryWindows {}
+
 pub struct Saver {
     app: Entity<OtmApp>,
     focus: FocusHandle,
@@ -22,30 +30,40 @@ pub struct Saver {
 
 impl Saver {
     pub fn open(app: Entity<OtmApp>, cx: &mut App) {
-        let display = cx.primary_display();
-        let bounds = display
-            .map(|d| d.bounds())
-            .unwrap_or_else(|| Bounds::centered(None, size(px(1440.), px(900.)), cx));
-        let _ = cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Fullscreen(bounds)),
-                titlebar: None,
-                kind: WindowKind::PopUp,
-                window_background: WindowBackgroundAppearance::Opaque,
-                ..Default::default()
-            },
-            move |window, cx| {
-                cx.new(|cx| {
-                    let focus = cx.focus_handle();
-                    window.focus(&focus);
-                    Saver {
-                        _watch: cx.observe(&app, |_, _, cx| cx.notify()),
-                        app,
-                        focus,
-                    }
-                })
-            },
-        );
+        cx.defer(move |cx| {
+            if let Some(handle) = cx.default_global::<SecondaryWindows>().saver
+                && handle
+                    .update(cx, |_, window, _| window.activate_window())
+                    .is_ok()
+            {
+                return;
+            }
+            let display = cx.primary_display();
+            let bounds = display
+                .map(|d| d.bounds())
+                .unwrap_or_else(|| Bounds::centered(None, size(px(1440.), px(900.)), cx));
+            let handle = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Fullscreen(bounds)),
+                    titlebar: None,
+                    kind: WindowKind::PopUp,
+                    window_background: WindowBackgroundAppearance::Opaque,
+                    ..Default::default()
+                },
+                move |window, cx| {
+                    cx.new(|cx| {
+                        let focus = cx.focus_handle();
+                        window.focus(&focus);
+                        Saver {
+                            _watch: cx.observe(&app, |_, _, cx| cx.notify()),
+                            app,
+                            focus,
+                        }
+                    })
+                },
+            );
+            cx.default_global::<SecondaryWindows>().saver = handle.ok().map(Into::into);
+        });
     }
 }
 
@@ -173,29 +191,39 @@ pub struct Popout {
 
 impl Popout {
     pub fn open(app: Entity<OtmApp>, cx: &mut App) {
-        let bounds = Bounds::new(point(px(80.), px(80.)), size(px(300.), px(150.)));
-        let _ = cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("OTM Popout".into()),
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(-40.), px(-40.))),
-                }),
-                kind: WindowKind::PopUp,
-                is_resizable: false,
-                is_minimizable: false,
-                window_background: WindowBackgroundAppearance::Blurred,
-                focus: false,
-                ..Default::default()
-            },
-            move |_, cx| {
-                cx.new(|cx| Popout {
-                    _watch: cx.observe(&app, |_, _, cx| cx.notify()),
-                    app,
-                })
-            },
-        );
+        cx.defer(move |cx| {
+            if let Some(handle) = cx.default_global::<SecondaryWindows>().popout
+                && handle
+                    .update(cx, |_, window, _| window.activate_window())
+                    .is_ok()
+            {
+                return;
+            }
+            let bounds = Bounds::new(point(px(80.), px(80.)), size(px(300.), px(150.)));
+            let handle = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("OTM Popout".into()),
+                        appears_transparent: true,
+                        traffic_light_position: Some(point(px(-40.), px(-40.))),
+                    }),
+                    kind: WindowKind::PopUp,
+                    is_resizable: false,
+                    is_minimizable: false,
+                    window_background: WindowBackgroundAppearance::Blurred,
+                    focus: false,
+                    ..Default::default()
+                },
+                move |_, cx| {
+                    cx.new(|cx| Popout {
+                        _watch: cx.observe(&app, |_, _, cx| cx.notify()),
+                        app,
+                    })
+                },
+            );
+            cx.default_global::<SecondaryWindows>().popout = handle.ok().map(Into::into);
+        });
     }
 }
 
