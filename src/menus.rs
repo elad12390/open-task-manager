@@ -31,6 +31,8 @@ actions!(
         ShowRecordingsFolder,
         CloseWindow,
         CopySelected,
+        QuitProcess,
+        ForceQuitProcess,
         Find,
         ClearFilter,
         ShowOverview,
@@ -150,6 +152,9 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
             name: "Edit".into(),
             items: vec![
                 MenuItem::action("Copy Selected Process", CopySelected),
+                MenuItem::separator(),
+                MenuItem::action("Quit Process", QuitProcess),
+                MenuItem::action("Force Quit Process…", ForceQuitProcess),
                 MenuItem::separator(),
                 MenuItem::action("Find Process", Find),
                 MenuItem::action("Clear Filter", ClearFilter),
@@ -348,8 +353,13 @@ impl OtmApp {
                 sysops::reveal_in_finder(&path.to_string_lossy());
                 (
                     format!(
-                        "Exported {} processes to {}",
+                        "Exported {} {} to {}",
                         self.snapshot.processes.len(),
+                        if self.snapshot.processes.len() == 1 {
+                            "process"
+                        } else {
+                            "processes"
+                        },
                         path.display()
                     ),
                     false,
@@ -374,6 +384,11 @@ impl OtmApp {
             .collect::<Vec<_>>()
             .join("\n");
         cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.notice = Some((
+            format!("Copied the details of {} (PID {})", p.name, p.pid),
+            false,
+        ));
+        cx.notify();
     }
 
     /// Register every menu action on the root element (they reach it through the focused window).
@@ -415,6 +430,17 @@ impl OtmApp {
         .on_action(cx.listener(|this, _: &ExportProcesses, _, cx| this.export_csv(cx)))
         .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
         .on_action(cx.listener(|this, _: &CopySelected, _, cx| this.copy_selected(cx)))
+        .on_action(cx.listener(|this, _: &QuitProcess, _, cx| {
+            if let Some(pid) = this.selected {
+                this.perform(crate::pages::Action::Signal(pid, false), cx);
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ForceQuitProcess, _, cx| {
+            if let Some(pid) = this.selected {
+                this.ask_force_quit(vec![pid]);
+                cx.notify();
+            }
+        }))
         .on_action(cx.listener(|this, _: &Find, _, cx| {
             if !this.page.filterable() {
                 this.open_page(Page::Processes, cx);
@@ -489,6 +515,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-e", ExportProcesses, None),
         KeyBinding::new("cmd-w", CloseWindow, None),
         KeyBinding::new("cmd-c", CopySelected, None),
+        KeyBinding::new("alt-cmd-q", QuitProcess, None),
         KeyBinding::new("cmd-f", Find, None),
         KeyBinding::new("cmd-1", ShowOverview, None),
         KeyBinding::new("cmd-2", ShowProcesses, None),
@@ -503,7 +530,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-+", TextBigger, None),
         KeyBinding::new("cmd--", TextSmaller, None),
         KeyBinding::new("cmd-0", TextActual, None),
-        KeyBinding::new("cmd-p", TogglePause, None),
+        KeyBinding::new("alt-cmd-p", TogglePause, None),
         KeyBinding::new("cmd-u", UpdateNow, None),
         KeyBinding::new("cmd-m", Minimize, None),
         KeyBinding::new("shift-cmd-p", OpenPopout, None),

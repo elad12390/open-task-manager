@@ -25,7 +25,7 @@ pub fn pill(
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .when(active, |d| d.bg(t.accent).text_color(gpui::white()))
+        .when(active, |d| d.bg(t.selection).text_color(gpui::white()))
         .when(!active, |d| {
             d.text_color(t.text).hover(|s| s.bg(t.glass_hover))
         })
@@ -86,6 +86,62 @@ pub fn ellipsize(cx: &gpui::App, text: String, width: f32, font_size: f32) -> St
     wrapper
         .truncate_line(text.into(), px(width), "…", &mut Vec::new())
         .to_string()
+}
+
+/// Like [`ellipsize`], but keeps the start and the end with "…" in the middle, for paths and
+/// endpoints where the end (the file or port) matters most.
+pub fn ellipsize_middle(cx: &gpui::App, text: String, width: f32, font_size: f32) -> String {
+    let fitted = ellipsize(cx, text.clone(), width, font_size);
+    if fitted == text || width <= 0. {
+        return fitted;
+    }
+    let mut wrapper = cx
+        .text_system()
+        .line_wrapper(gpui::font(".SystemUIFont"), px(font_size));
+    let head = wrapper
+        .truncate_line(text.clone().into(), px(width * 0.4), "…", &mut Vec::new())
+        .to_string();
+    // Measure the tail by truncating the reversed string, then turn it back around.
+    let reversed: String = text.chars().rev().collect();
+    let tail: String = wrapper
+        .truncate_line(reversed.into(), px(width * 0.6), "", &mut Vec::new())
+        .chars()
+        .rev()
+        .collect();
+    format!("{head}{tail}")
+}
+
+/// A small help tag shown on hover, e.g. the full value of a shortened cell.
+pub struct Tip(pub gpui::SharedString);
+
+impl gpui::Render for Tip {
+    fn render(
+        &mut self,
+        window: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let t = Theme::for_appearance(window.appearance());
+        div()
+            .max_w(px(520.))
+            .px_2()
+            .py_1()
+            .rounded(px(6.))
+            .bg(crate::theme::with_alpha(t.glass_strong, 0.98))
+            .border_1()
+            .border_color(t.stroke)
+            .shadow_md()
+            .text_xs()
+            .text_color(t.text)
+            .child(self.0.clone())
+    }
+}
+
+/// A tooltip builder for `.tooltip(...)` that shows `text`.
+pub fn tip(
+    text: impl Into<gpui::SharedString>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    let text = text.into();
+    move |_, cx| cx.new(|_| Tip(text.clone())).into()
 }
 
 pub fn meter(t: &Theme, pct: f32, color: Hsla) -> Div {

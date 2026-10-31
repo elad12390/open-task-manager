@@ -761,6 +761,9 @@ impl OtmApp {
                         app.snapshot = snapshot(app.demo_tick, &app.demo_removed);
                         app.history.push(&app.snapshot);
                         app.rebuild_rows();
+                        if app.page == crate::app::Page::Users {
+                            app.rebuild_listing();
+                        }
                         cx.notify();
                     })
                     .is_err()

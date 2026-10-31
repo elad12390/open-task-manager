@@ -132,14 +132,14 @@ impl Render for Saver {
             )
             .child(band(
                 "CPU",
-                format!("{:.0}%", s.cpu),
+                crate::metrics::fmt_pct(s.cpu),
                 h.cpu.iter().copied().collect(),
                 100.,
                 0x5ac8faff,
             ))
             .child(band(
                 "MEMORY",
-                format!("{mem:.0}%"),
+                crate::metrics::fmt_pct(mem),
                 h.memory.iter().copied().collect(),
                 100.,
                 0xbf5af2ff,
@@ -256,8 +256,8 @@ impl Render for Popout {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(line("CPU", format!("{:.0}%", s.cpu), s.cpu))
-                    .child(line("Memory", format!("{mem:.0}%"), mem))
+                    .child(line("CPU", crate::metrics::fmt_pct(s.cpu), s.cpu))
+                    .child(line("Memory", crate::metrics::fmt_pct(mem), mem))
                     .child(
                         div()
                             .flex()

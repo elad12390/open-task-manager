@@ -1040,7 +1040,21 @@ impl OtmApp {
         if let Some(id) = &self.cursor
             && let Some(ix) = self.rows.iter().position(|r| &r.id() == id)
         {
-            self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            // Scroll only as far as needed to show the row, so the list doesn't jump on every key.
+            let (first, shown) = {
+                let state = self.scroll.0.borrow();
+                let handle = &state.base_handle;
+                let top = (-f32::from(handle.offset().y) / ROW_HEIGHT).max(0.);
+                let shown = (f32::from(handle.bounds().size.height) / ROW_HEIGHT).floor();
+                (top.ceil() as usize, shown as usize)
+            };
+            if shown == 0 {
+                self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            } else if ix < first {
+                self.scroll.scroll_to_item(ix, ScrollStrategy::Top);
+            } else if ix + 1 > first + shown.saturating_sub(1) {
+                self.scroll.scroll_to_item(ix, ScrollStrategy::Bottom);
+            }
         }
     }
 
@@ -1068,7 +1082,7 @@ impl OtmApp {
         let subtitle = match &self.notice {
             Some((msg, err)) => div()
                 .text_color(if *err { t.hot } else { t.good })
-                .child(msg.clone()),
+                .child(crate::filter_bar::notice_text(msg, *err)),
             None if self.filter_active() => div().text_color(t.text_dim).child(format!(
                 "{} of {count} processes match · Esc clears",
                 self.match_count
@@ -1105,21 +1119,32 @@ impl OtmApp {
                             )
                             .child(subtitle.text_xs().truncate()),
                     )
-                    .when_some(self.selected, |d, pid| {
-                        d.child(ui::pill(t, "quit", "Quit", false).flex_shrink_0().on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.perform(Action::Signal(pid, false), cx)
-                            }),
-                        ))
-                        .child(
-                            ui::pill(t, "force-quit", "Force Quit", false)
-                                .flex_shrink_0()
-                                .text_color(t.hot)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.perform(Action::Signal(pid, true), cx)
-                                })),
-                        )
-                    })
+                    // Always shown, and dimmed without a selection, so the toolbar never shifts.
+                    .child(
+                        ui::pill(t, "quit", "Quit", false)
+                            .flex_shrink_0()
+                            .when(self.selected.is_none(), |d| d.opacity(0.4))
+                            .when_some(self.selected, |d, pid| {
+                                d.on_click(cx.listener(move |this, _, _, cx| {
+                                    this.perform(Action::Signal(pid, false), cx)
+                                }))
+                            })
+                            .tooltip(ui::tip("Ask the selected process to quit")),
+                    )
+                    .child(
+                        ui::pill(t, "force-quit", "Force Quit…", false)
+                            .debug_selector(|| "force-quit".into())
+                            .flex_shrink_0()
+                            .text_color(t.hot)
+                            .when(self.selected.is_none(), |d| d.opacity(0.4))
+                            .when_some(self.selected, |d, pid| {
+                                d.on_click(cx.listener(move |this, _, _, cx| {
+                                    this.ask_force_quit(vec![pid]);
+                                    cx.notify();
+                                }))
+                            })
+                            .tooltip(ui::tip("Stop the selected process at once (asks first)")),
+                    )
                     .child(
                         ui::pill(t, "columns-btn", "Columns ▾", self.column_menu)
                             .flex_shrink_0()
@@ -1156,6 +1181,9 @@ impl OtmApp {
                             .child(div().text_xs().text_color(t.text_dim).child("Group"))
                             .child(ui::segmented(t).children(GroupBy::ALL.map(|g| {
                                 ui::pill(t, g.label(), g.label(), self.layout.group_by == g)
+                                    .w(px(78.))
+                                    .flex()
+                                    .justify_center()
                                     .debug_selector(|| format!("group-{g:?}"))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.layout.group_by = g;
@@ -1254,7 +1282,7 @@ impl OtmApp {
                             .rounded(px(5.))
                             .border_1()
                             .border_color(if c.visible { t.accent } else { t.stroke })
-                            .when(c.visible, |d| d.bg(t.accent).text_color(gpui::white()))
+                            .when(c.visible, |d| d.bg(t.selection).text_color(gpui::white()))
                             .text_xs()
                             .cursor_pointer()
                             .child(if c.visible { "✓" } else { "" })
@@ -1263,7 +1291,18 @@ impl OtmApp {
                                 this.layout_changed(cx);
                             })),
                     )
-                    .child(div().flex_1().child(id.title()))
+                    // The name toggles the column too: a far bigger target than the box.
+                    .child(
+                        div()
+                            .id(("col-name", i))
+                            .flex_1()
+                            .cursor_pointer()
+                            .child(id.title())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.layout.toggle(id);
+                                this.layout_changed(cx);
+                            })),
+                    )
                     .child(arrow(t, ("up", i), "↑", i > 0).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.layout.shift(id, -1);
@@ -1427,7 +1466,7 @@ impl OtmApp {
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(ix % 2 == 1 && !selected, |d| d.bg(t.row_alt))
-                    .when(selected, |d| d.bg(t.accent).text_color(gpui::white()))
+                    .when(selected, |d| d.bg(t.selection).text_color(gpui::white()))
                     .when(!selected, |d| d.hover(|h| h.bg(t.glass_hover)))
                     .children(self.layout.visible().map(|(i, c)| {
                         let cell = div()
@@ -1557,7 +1596,7 @@ impl OtmApp {
                     .text_sm()
                     .cursor_default()
                     .when(ix % 2 == 1 && !selected, |d| d.bg(t.row_alt))
-                    .when(selected, |d| d.bg(t.accent).text_color(gpui::white()))
+                    .when(selected, |d| d.bg(t.selection).text_color(gpui::white()))
                     .when(!selected, |d| d.hover(|h| h.bg(t.glass_hover)))
                     .children(self.layout.visible().map(|(i, c)| {
                         let text = if c.id == ColumnId::Memory {
@@ -1625,9 +1664,10 @@ impl OtmApp {
                                 d.child(self.icon_slot(bundle.as_deref()))
                             })
                             // Text columns end in "…" in what is left of the cell after the indent,
-                            // twisty, icon and badges. Numbers keep their right alignment.
-                            .child(div().flex_shrink_0().child(if c.id.numeric() {
-                                text
+                            // twisty, icon and badges (paths keep their end, "…" in the middle),
+                            // and show the full text on hover. Numbers keep their right alignment.
+                            .child(if c.id.numeric() {
+                                div().flex_shrink_0().child(text).into_any_element()
                             } else {
                                 let lead = if is_tree_col {
                                     depth as f32 * 14. + 14. + 8.
@@ -1646,13 +1686,23 @@ impl OtmApp {
                                 } else {
                                     0.
                                 };
-                                ui::ellipsize(
-                                    cx,
-                                    text,
-                                    c.width - 16. - lead - trail,
-                                    self.text_px(),
-                                )
-                            }))
+                                let room = c.width - 16. - lead - trail;
+                                let shown = if c.id == ColumnId::Path {
+                                    ui::ellipsize_middle(cx, text.clone(), room, self.text_px())
+                                } else {
+                                    ui::ellipsize(cx, text.clone(), room, self.text_px())
+                                };
+                                if shown == text {
+                                    div().flex_shrink_0().child(shown).into_any_element()
+                                } else {
+                                    div()
+                                        .id(("cell", ix * 64 + i))
+                                        .flex_shrink_0()
+                                        .child(shown)
+                                        .tooltip(ui::tip(text))
+                                        .into_any_element()
+                                }
+                            })
                             .when(is_tree_col && collapsed, |d| {
                                 d.child(
                                     div()
@@ -1787,92 +1837,6 @@ impl OtmApp {
                 .into_any_element(),
             None => div().w(px(14.)).flex_shrink_0().into_any_element(),
         }
-    }
-
-    pub fn render_users(&self, t: &Theme) -> impl IntoElement {
-        let mut users: HashMap<&str, (usize, f32, u64)> = HashMap::new();
-        for p in &self.snapshot.processes {
-            let e = users.entry(p.user.as_str()).or_default();
-            e.0 += 1;
-            e.1 += p.cpu;
-            e.2 += p.memory;
-        }
-        let mut users: Vec<_> = users.into_iter().collect();
-        users.sort_by_key(|u| std::cmp::Reverse(u.1.2));
-        let total_mem = self.snapshot.memory_total.max(1) as f32;
-        ui::glass(t)
-            .size_full()
-            .p_4()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(div().text_xl().font_weight(FontWeight::BOLD).child("Users"))
-            .child(div().text_xs().text_color(t.text_dim).child(
-                "Processes owned by each account. Group Processes by Owner for the full list.",
-            ))
-            .children(users.into_iter().map(|(name, (count, cpu, memory))| {
-                let pct = memory as f32 / total_mem * 100.;
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_4()
-                    .p_3()
-                    .rounded(px(14.))
-                    .bg(t.glass_strong)
-                    .border_1()
-                    .border_color(t.stroke)
-                    .child(
-                        div()
-                            .size(px(34.))
-                            .rounded_full()
-                            .bg(t.accent_soft)
-                            .text_color(t.accent)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .font_weight(FontWeight::BOLD)
-                            .child(
-                                name.chars()
-                                    .next()
-                                    .unwrap_or('?')
-                                    .to_uppercase()
-                                    .to_string(),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(name.to_string()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(t.text_dim)
-                                    .child(format!("{count} processes")),
-                            ),
-                    )
-                    .child(div().w(px(90.)).text_sm().child(format!("CPU {cpu:.1}%")))
-                    .child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(t.text_dim)
-                                    .child(format!("Memory {}", fmt_bytes(memory))),
-                            )
-                            .child(ui::meter(t, pct, t.accent.into())),
-                    )
-            }))
     }
 }
 

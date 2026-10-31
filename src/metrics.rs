@@ -86,6 +86,8 @@ pub struct Sampler {
     user_names: HashMap<String, String>,
     ps: HashMap<u32, PsRow>,
     self_pid: u32,
+    /// When the previous sample was taken: byte counters are since then, so rates divide by it.
+    last_sample: Option<std::time::Instant>,
 }
 
 struct PsRow {
@@ -111,6 +113,7 @@ impl Sampler {
             user_names: HashMap::new(),
             ps: HashMap::new(),
             self_pid: std::process::id(),
+            last_sample: None,
         }
     }
 
@@ -192,6 +195,13 @@ impl Sampler {
         );
         self.networks.refresh(true);
         self.disks.refresh(true);
+        let now = std::time::Instant::now();
+        let secs = self
+            .last_sample
+            .map_or(1., |t| now.duration_since(t).as_secs_f64())
+            .max(0.05);
+        self.last_sample = Some(now);
+        let per_sec = |bytes: u64| (bytes as f64 / secs) as u64;
 
         let (net_down, net_up) = self
             .networks
@@ -200,6 +210,7 @@ impl Sampler {
             .fold((0, 0), |(d, u), (_, n)| {
                 (d + n.received(), u + n.transmitted())
             });
+        let (net_down, net_up) = (per_sec(net_down), per_sec(net_up));
 
         let raw: Vec<_> = self
             .system
@@ -259,8 +270,8 @@ impl Sampler {
                     user: self.user_name(pid, uid.as_ref()),
                     cpu,
                     memory,
-                    disk_read: disk.read_bytes,
-                    disk_write: disk.written_bytes,
+                    disk_read: per_sec(disk.read_bytes),
+                    disk_write: per_sec(disk.written_bytes),
                     state,
                     run_time,
                     path,
@@ -338,7 +349,35 @@ pub fn fmt_duration(secs: u64) -> String {
         format!("{d}d {h}h")
     } else if h > 0 {
         format!("{h}h {m:02}m")
+    } else if m > 0 {
+        format!("{m}m {s:02}s")
     } else {
-        format!("{m}:{s:02}")
+        format!("{s}s")
+    }
+}
+
+/// Disk and file sizes in decimal units (1 KB = 1000 bytes), as Finder shows them. Memory keeps
+/// `fmt_bytes`, which matches Activity Monitor.
+pub fn fmt_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// A whole percent that never shows a busy value as 0: anything above 0 and below 1 is "<1%".
+pub fn fmt_pct(pct: f32) -> String {
+    if pct > 0. && pct < 1. {
+        "<1%".into()
+    } else {
+        format!("{pct:.0}%")
     }
 }

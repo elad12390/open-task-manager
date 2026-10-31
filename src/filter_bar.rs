@@ -13,8 +13,15 @@ use crate::{
     theme::{Theme, with_alpha},
 };
 
-/// Notices (after an action) give way to the normal subtitle after this long.
+/// Notices (after an action) give way to the normal subtitle after this long; errors stay longer
+/// so there is time to read them.
 const NOTICE_FOR: Duration = Duration::from_secs(5);
+const ERROR_FOR: Duration = Duration::from_secs(15);
+
+/// A notice with a symbol as well as its colour, so success and failure differ without colour.
+pub fn notice_text(msg: &str, err: bool) -> String {
+    format!("{} {msg}", if err { "⚠" } else { "✓" })
+}
 
 pub fn kind_color(k: Kind) -> Rgba {
     rgb(match k {
@@ -54,7 +61,9 @@ impl OtmApp {
     /// Blink the caret while the filter has focus, and retire notices after a few seconds.
     pub fn start_caret_blink(&self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
-            let mut seen: Option<(String, Instant)> = None;
+            // The notice last seen (by its allocation, so setting the same text again restarts the
+            // clock) and when it appeared.
+            let mut seen: Option<(usize, Instant)> = None;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(530))
@@ -66,16 +75,19 @@ impl OtmApp {
                         dirty = true;
                     }
                     match &app.notice {
-                        Some((msg, _)) => match &seen {
-                            Some((last, at)) if last == msg => {
-                                if at.elapsed() >= NOTICE_FOR {
-                                    app.notice = None;
-                                    seen = None;
-                                    dirty = true;
+                        Some((msg, err)) => {
+                            let id = msg.as_ptr() as usize;
+                            match seen {
+                                Some((last, at)) if last == id => {
+                                    if at.elapsed() >= if *err { ERROR_FOR } else { NOTICE_FOR } {
+                                        app.notice = None;
+                                        seen = None;
+                                        dirty = true;
+                                    }
                                 }
+                                _ => seen = Some((id, Instant::now())),
                             }
-                            _ => seen = Some((msg.clone(), Instant::now())),
-                        },
+                        }
                         None => seen = None,
                     }
                     if dirty {
@@ -88,6 +100,30 @@ impl OtmApp {
             }
         })
         .detach();
+    }
+
+    /// Byte index of the caret in `query`.
+    pub fn caret_byte(&self) -> usize {
+        let chars = self.query.chars().count();
+        let at = chars - self.caret_back.min(chars);
+        self.query
+            .char_indices()
+            .nth(at)
+            .map_or(self.query.len(), |(i, _)| i)
+    }
+
+    /// The typed text with the caret where it is (when focused).
+    pub fn query_with_caret(&self, t: &Theme) -> gpui::Div {
+        let at = self.caret_byte();
+        let (before, after) = self.query.split_at(at);
+        div()
+            .flex_shrink_0()
+            .flex()
+            .flex_row()
+            .items_center()
+            .when(!before.is_empty(), |d| d.child(before.to_string()))
+            .when(self.filter_focused, |d| d.child(caret(t, self.caret_on)))
+            .when(!after.is_empty(), |d| d.child(after.to_string()))
     }
 
     pub fn filter_active(&self) -> bool {
@@ -125,6 +161,7 @@ impl OtmApp {
             self.chips.push(chip);
         }
         self.query.clear();
+        self.caret_back = 0;
         self.suggest_ix = 0;
         self.suggest_open = false;
         self.caret_on = true;
@@ -138,8 +175,38 @@ impl OtmApp {
         }
     }
 
+    /// `cpu…` or `mem…` typed without a usable number yet.
+    fn typing_threshold(&self) -> bool {
+        let q = self.query.trim().to_lowercase();
+        (q.starts_with("cpu") || q.starts_with("mem"))
+            && q.len() > 3
+            && crate::filter::parse_numeric(&q).is_none()
+    }
+
+    /// Turn chip `ix` back into text in the field, to change it.
+    pub fn edit_chip(&mut self, ix: usize) {
+        if ix >= self.chips.len() {
+            return;
+        }
+        let chip = self.chips.remove(ix);
+        self.query = match chip {
+            Chip::App(v) => format!("app:{v}"),
+            Chip::User(v) => format!("user:{v}"),
+            Chip::Category(v) => format!("cat:{v}"),
+            Chip::State(v) => format!("state:{v}"),
+            Chip::CpuAbove(x) => format!("cpu>{x}"),
+            Chip::MemoryAbove(b) if b % (1 << 30) == 0 => format!("mem>{}g", b >> 30),
+            Chip::MemoryAbove(b) => format!("mem>{}", b >> 20),
+        };
+        self.caret_back = 0;
+        self.suggest_ix = 0;
+        self.focus_filter();
+        self.rebuild_rows();
+    }
+
     pub fn clear_filter(&mut self) {
         self.query.clear();
+        self.caret_back = 0;
         self.chips.clear();
         self.suggest_ix = 0;
         self.rebuild_rows();
@@ -166,10 +233,21 @@ impl OtmApp {
             .flex_row()
             .items_center()
             .gap_1()
-            .h(px(22.))
+            .h(px(24.))
             .pl(px(4.))
-            .pr(px(2.))
+            .pr(px(1.))
             .rounded_full()
+            .cursor_pointer()
+            .tooltip(crate::ui::tip("Click to edit"))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.edit_chip(ix);
+                    window.focus(&this.focus);
+                    cx.notify();
+                }),
+            )
             .bg(with_alpha(c, 0.14))
             .border_1()
             .border_color(with_alpha(c, 0.4))
@@ -188,7 +266,7 @@ impl OtmApp {
                 div()
                     .id(("filter-chip-remove", ix))
                     .debug_selector(move || format!("filter-chip-remove-{ix}"))
-                    .size(px(16.))
+                    .size(px(22.))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -196,6 +274,7 @@ impl OtmApp {
                     .text_color(t.text_dim)
                     .cursor_pointer()
                     .hover(|h| h.bg(with_alpha(c, 0.3)).text_color(t.text))
+                    .tooltip(crate::ui::tip("Remove this filter"))
                     .child("×")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -231,12 +310,12 @@ impl OtmApp {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap_1()
+                    .gap(px(6.))
                     .overflow_hidden()
                     .rounded(px(16.))
                     .bg(t.glass_strong)
-                    .border_1()
-                    .border_color(if focused { t.accent } else { t.stroke })
+                    .when(focused, |d| d.border_2().border_color(t.accent))
+                    .when(!focused, |d| d.border_1().border_color(t.text_faint))
                     .cursor(CursorStyle::IBeam)
                     .text_sm()
                     .on_mouse_down(
@@ -273,10 +352,9 @@ impl OtmApp {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .when(!self.query.is_empty(), |d| {
-                                d.child(div().flex_shrink_0().child(self.query.clone()))
+                            .when(!self.query.is_empty() || focused, |d| {
+                                d.child(self.query_with_caret(t))
                             })
-                            .when(focused, |d| d.child(caret(t, self.caret_on)))
                             .when(placeholder, |d| {
                                 d.child(div().pl_1().truncate().text_color(t.text_faint).child(
                                     if focused {
@@ -293,7 +371,8 @@ impl OtmApp {
                                 .id("filter-clear")
                                 .debug_selector(|| "filter-clear".into())
                                 .flex_shrink_0()
-                                .size(px(18.))
+                                .size(px(22.))
+                                .tooltip(crate::ui::tip("Clear the filter (Esc)"))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -314,6 +393,32 @@ impl OtmApp {
                                 ),
                         )
                     }),
+            )
+            .when(
+                suggestions.is_empty() && focused && self.typing_threshold(),
+                |d| {
+                    d.child(
+                    div().absolute().top(px(38.)).left_0().child(
+                        deferred(anchored().child(
+                            div()
+                                .id("filter-hint")
+                                .debug_selector(|| "filter-hint".into())
+                                .occlude()
+                                .px_3()
+                                .py_2()
+                                .rounded(px(10.))
+                                .bg(with_alpha(t.glass_strong, 0.97))
+                                .border_1()
+                                .border_color(t.highlight)
+                                .shadow_lg()
+                                .text_xs()
+                                .text_color(t.text_dim)
+                                .child("Type a number: cpu>5 (percent), mem>500 (MB) or mem>1.5g"),
+                        ))
+                        .with_priority(1),
+                    ),
+                )
+                },
             )
             .when(!suggestions.is_empty(), |d| {
                 d.child(
@@ -384,7 +489,12 @@ impl OtmApp {
                     .rounded(px(8.))
                     .cursor_pointer()
                     .when(i == highlighted, |d| d.bg(t.accent_soft))
-                    .when(i != highlighted, |d| d.hover(|h| h.bg(t.glass_hover)))
+                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                        if *hovered && this.suggest_ix != i {
+                            this.suggest_ix = i;
+                            cx.notify();
+                        }
+                    }))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
@@ -430,7 +540,9 @@ impl OtmApp {
                     .text_color(t.text_faint)
                     .child("↑↓ choose")
                     .child("⏎ add")
-                    .child("⌫ remove last")
+                    .when(self.query.is_empty() && !self.chips.is_empty(), |d| {
+                        d.child("⌫ remove last")
+                    })
                     .child("esc close"),
             )
             .into_any_element()

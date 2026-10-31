@@ -15,6 +15,7 @@ mod recorder;
 mod selftest;
 mod settings;
 mod sysops;
+mod tables;
 mod theme;
 mod ui;
 #[cfg(test)]

@@ -94,7 +94,7 @@ impl OtmApp {
                         card(
                             t,
                             "CPU",
-                            format!("{:.0}%", s.cpu),
+                            crate::metrics::fmt_pct(s.cpu),
                             format!("{} cores", s.cores.len()),
                         )
                         .child(ui::sparkline(
@@ -109,7 +109,7 @@ impl OtmApp {
                         card(
                             t,
                             "MEMORY",
-                            format!("{mem_pct:.0}%"),
+                            crate::metrics::fmt_pct(mem_pct),
                             format!(
                                 "{} of {} · swap {}",
                                 fmt_bytes(s.memory_used),
@@ -151,11 +151,11 @@ impl OtmApp {
                         card(
                             t,
                             "DISK",
-                            format!("{disk_pct:.0}%"),
+                            crate::metrics::fmt_pct(disk_pct),
                             format!(
                                 "{} free of {}",
-                                fmt_bytes(boot_disk.available),
-                                fmt_bytes(boot_disk.total)
+                                crate::metrics::fmt_size(boot_disk.available),
+                                crate::metrics::fmt_size(boot_disk.total)
                             ),
                         )
                         .child(ui::meter(
@@ -255,7 +255,7 @@ impl OtmApp {
                                         .text_xs()
                                         .text_color(t.text_dim)
                                         .child(format!("Core {}", i + 1))
-                                        .child(format!("{pct:.0}%")),
+                                        .child(crate::metrics::fmt_pct(pct)),
                                 )
                                 .child(ui::meter(t, pct, t.load_color(pct)))
                         }),

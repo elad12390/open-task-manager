@@ -6,10 +6,11 @@ use gpui::{
 
 use crate::{
     app::{OtmApp, Page},
-    metrics::{fmt_bytes, fmt_duration},
+    metrics::{fmt_bytes, fmt_duration, fmt_size},
     recorder,
     settings::{Appearance, GLASS_SKIN, Glass, skins},
     sysops::{self, ServiceAction},
+    tables::{Col, cell},
     theme::Theme,
     ui,
 };
@@ -35,13 +36,17 @@ pub struct ActionButton {
 
 pub struct ListRow {
     pub cells: Vec<SharedString>,
+    /// One sort key per cell.
+    pub keys: Vec<crate::tables::SortKey>,
     pub dim: bool,
     pub actions: Vec<ActionButton>,
 }
 
 pub struct Listing {
-    pub headers: Vec<(&'static str, f32)>,
+    pub headers: Vec<Col>,
     pub rows: Rc<Vec<ListRow>>,
+    /// Rows before the filter.
+    pub total: usize,
 }
 
 impl Default for Listing {
@@ -49,6 +54,7 @@ impl Default for Listing {
         Self {
             headers: Vec::new(),
             rows: Rc::new(Vec::new()),
+            total: 0,
         }
     }
 }
@@ -90,8 +96,14 @@ impl OtmApp {
 
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
-        self.listing = Listing::default();
         self.query.clear();
+        self.caret_back = 0;
+        self.listing_loading = !self.demo_mode
+            && matches!(
+                page,
+                Page::Startup | Page::Services | Page::Connections | Page::Apps
+            );
+        self.rebuild_listing();
         self.blur_filter();
         self.column_menu = false;
         self.confirm_trash = None;
@@ -106,20 +118,24 @@ impl OtmApp {
         }
         match self.page {
             Page::Startup => self.run_bg(cx, sysops::startup_items, |app, v, _| {
+                app.listing_loading = false;
                 app.startup = v;
                 app.rebuild_listing();
             }),
             Page::Services => self.run_bg(cx, sysops::services, |app, v, _| {
+                app.listing_loading = false;
                 app.services = v;
                 app.rebuild_listing();
             }),
             Page::Connections => self.run_bg(cx, sysops::connections, |app, v, _| {
+                app.listing_loading = false;
                 app.connections = v;
                 app.rebuild_listing();
             }),
             Page::Apps => {
                 self.run_bg(cx, sysops::installed_apps, |app, v, cx| {
                     let paths: Vec<PathBuf> = v.iter().map(|a| a.path.clone()).collect();
+                    app.listing_loading = false;
                     app.apps = v;
                     app.rebuild_listing();
                     app.run_bg(
@@ -134,6 +150,8 @@ impl OtmApp {
                     );
                 });
             }
+            // Built from the live snapshot, so it is ready at once and refreshes with it.
+            Page::Users => self.rebuild_listing(),
             Page::Power => self.run_bg(cx, sysops::power, |app, v, _| app.power = Some(v)),
             Page::Disk => {
                 if self.scans.is_empty() {
@@ -212,28 +230,83 @@ impl OtmApp {
         );
     }
 
-    fn matches(&self, fields: &[&str]) -> bool {
-        let q = self.query.to_lowercase();
-        q.is_empty() || fields.iter().any(|f| f.to_lowercase().contains(&q))
+    /// The table id a listing page keeps its sort under.
+    pub fn listing_table(page: Page) -> &'static str {
+        match page {
+            Page::Users => "users",
+            Page::Startup => "startup",
+            Page::Services => "services",
+            Page::Connections => "connections",
+            Page::Apps => "apps",
+            _ => "",
+        }
     }
 
     pub fn rebuild_listing(&mut self) {
-        let row = |cells: Vec<String>, dim: bool, actions: Vec<ActionButton>| ListRow {
-            cells: cells.into_iter().map(SharedString::from).collect(),
-            dim,
-            actions,
-        };
-        let (headers, rows): (Vec<(&'static str, f32)>, Vec<ListRow>) = match self.page {
+        use crate::tables::{SortKey as K, num, text};
+        let row =
+            |cells: Vec<String>, keys: Vec<K>, dim: bool, actions: Vec<ActionButton>| ListRow {
+                cells: cells.into_iter().map(SharedString::from).collect(),
+                keys,
+                dim,
+                actions,
+            };
+        let (headers, rows): (Vec<Col>, Vec<ListRow>) = match self.page {
+            Page::Users => {
+                let mut users: std::collections::HashMap<&str, (usize, f32, u64)> =
+                    Default::default();
+                for p in &self.snapshot.processes {
+                    let e = users.entry(p.user.as_str()).or_default();
+                    e.0 += 1;
+                    e.1 += p.cpu;
+                    e.2 += p.memory;
+                }
+                let total = self.snapshot.memory_total.max(1) as f64;
+                let mut users: Vec<_> = users.into_iter().collect();
+                users.sort_by_key(|u| std::cmp::Reverse(u.1.2));
+                (
+                    vec![
+                        text("User", 220.),
+                        num("Processes", 100.),
+                        num("CPU", 90.),
+                        num("Memory", 110.),
+                        num("Share of Memory", 140.),
+                    ],
+                    users
+                        .into_iter()
+                        .map(|(name, (count, cpu, memory))| {
+                            let share = memory as f64 / total * 100.;
+                            row(
+                                vec![
+                                    name.to_string(),
+                                    count.to_string(),
+                                    format!("{cpu:.1}%"),
+                                    fmt_bytes(memory),
+                                    format!("{share:.1}%"),
+                                ],
+                                vec![
+                                    K::text(name),
+                                    K::num(count as f64),
+                                    K::num(cpu),
+                                    K::num(memory as f64),
+                                    K::num(share),
+                                ],
+                                false,
+                                vec![],
+                            )
+                        })
+                        .collect(),
+                )
+            }
             Page::Startup => (
                 vec![
-                    ("Label", 380.),
-                    ("Scope", 120.),
-                    ("State", 90.),
-                    ("File", 420.),
+                    text("Label", 380.),
+                    text("Scope", 120.),
+                    text("State", 100.),
+                    text("File", 420.),
                 ],
                 self.startup
                     .iter()
-                    .filter(|s| self.matches(&[&s.label, s.scope]))
                     .map(|s| {
                         let actions = if !s.editable {
                             vec![]
@@ -242,16 +315,15 @@ impl OtmApp {
                         } else {
                             vec![btn("Enable", Action::Load(s.file.clone()))]
                         };
+                        let state = if s.loaded { "Loaded" } else { "Not loaded" };
+                        let file = s.file.display().to_string();
                         row(
+                            vec![s.label.clone(), s.scope.into(), state.into(), file.clone()],
                             vec![
-                                s.label.clone(),
-                                s.scope.into(),
-                                if s.loaded {
-                                    "Loaded".into()
-                                } else {
-                                    "Not loaded".into()
-                                },
-                                s.file.display().to_string(),
+                                K::text(&s.label),
+                                K::text(s.scope),
+                                K::text(state),
+                                K::text(&file),
                             ],
                             !s.loaded,
                             actions,
@@ -261,29 +333,31 @@ impl OtmApp {
             ),
             Page::Services => (
                 vec![
-                    ("Label", 460.),
-                    ("PID", 90.),
-                    ("Last exit", 90.),
-                    ("State", 100.),
+                    text("Label", 460.),
+                    num("PID", 90.),
+                    num("Last Exit", 90.),
+                    text("State", 100.),
                 ],
                 self.services
                     .iter()
-                    .filter(|s| self.matches(&[&s.label]))
                     .map(|s| {
                         let mut actions = vec![btn("Restart", Action::Restart(s.label.clone()))];
                         if s.pid.is_some() {
                             actions.push(danger("Stop", Action::Stop(s.label.clone())));
                         }
+                        let state = if s.pid.is_some() { "Running" } else { "Idle" };
                         row(
                             vec![
                                 s.label.clone(),
                                 s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
                                 s.status.to_string(),
-                                if s.pid.is_some() {
-                                    "Running".into()
-                                } else {
-                                    "Idle".into()
-                                },
+                                state.into(),
+                            ],
+                            vec![
+                                K::text(&s.label),
+                                K::num(s.pid.map_or(-1., f64::from)),
+                                K::num(s.status as f64),
+                                K::text(state),
                             ],
                             s.pid.is_none(),
                             actions,
@@ -293,15 +367,14 @@ impl OtmApp {
             ),
             Page::Connections => (
                 vec![
-                    ("Process", 200.),
-                    ("PID", 80.),
-                    ("Protocol", 80.),
-                    ("Endpoint", 460.),
-                    ("State", 120.),
+                    text("Process", 200.),
+                    num("PID", 80.),
+                    text("Protocol", 90.),
+                    text("Endpoint", 460.),
+                    text("State", 120.),
                 ],
                 self.connections
                     .iter()
-                    .filter(|c| self.matches(&[&c.process, &c.endpoint, &c.state]))
                     .map(|c| {
                         row(
                             vec![
@@ -311,6 +384,13 @@ impl OtmApp {
                                 c.endpoint.clone(),
                                 c.state.clone(),
                             ],
+                            vec![
+                                K::text(&c.process),
+                                K::num(c.pid),
+                                K::text(&c.proto),
+                                K::text(&c.endpoint),
+                                K::text(&c.state),
+                            ],
                             c.state.is_empty(),
                             vec![],
                         )
@@ -319,19 +399,18 @@ impl OtmApp {
             ),
             Page::Apps => (
                 vec![
-                    ("Name", 280.),
-                    ("Version", 120.),
-                    ("Size", 100.),
-                    ("Location", 360.),
+                    text("Name", 280.),
+                    text("Version", 120.),
+                    num("Size", 100.),
+                    text("Location", 360.),
                 ],
                 self.apps
                     .iter()
-                    .filter(|a| self.matches(&[&a.name]))
                     .map(|a| {
                         let path = a.path.display().to_string();
                         let actions = if self.confirm_trash.as_ref() == Some(&a.path) {
                             vec![
-                                danger("Confirm move to Trash", Action::Trash(a.path.clone())),
+                                danger("Move to Trash", Action::Trash(a.path.clone())),
                                 btn("Cancel", Action::CancelTrash),
                             ]
                         } else {
@@ -344,8 +423,14 @@ impl OtmApp {
                             vec![
                                 a.name.clone(),
                                 a.version.clone(),
-                                a.bytes.map(fmt_bytes).unwrap_or_else(|| "…".into()),
-                                path,
+                                a.bytes.map(fmt_size).unwrap_or_else(|| "…".into()),
+                                path.clone(),
+                            ],
+                            vec![
+                                K::text(&a.name),
+                                K::text(&a.version),
+                                K::num(a.bytes.map_or(-1., |b| b as f64)),
+                                K::text(&path),
                             ],
                             false,
                             actions,
@@ -355,9 +440,22 @@ impl OtmApp {
             ),
             _ => (vec![], vec![]),
         };
+        // The filter searches every column; the chosen sort applies on top of each page's order.
+        let total = rows.len();
+        let q = self.query.trim().to_lowercase();
+        let mut rows: Vec<ListRow> = rows
+            .into_iter()
+            .filter(|r| q.is_empty() || r.cells.iter().any(|c| c.to_lowercase().contains(&q)))
+            .collect();
+        crate::tables::sort_items(
+            &mut rows,
+            self.table_sort(Self::listing_table(self.page)),
+            |r, c| r.keys.get(c).cloned().unwrap_or(K::Num(0.)),
+        );
         self.listing = Listing {
             headers,
             rows: Rc::new(rows),
+            total,
         };
     }
 
@@ -392,9 +490,14 @@ impl OtmApp {
                                 .py_1()
                                 .rounded_full()
                                 .text_xs()
-                                .bg(if err { t.hot } else { t.good })
+                                // Fixed dark fills: white text stays readable in light and dark.
+                                .bg(if err {
+                                    gpui::rgb(0xc4001a)
+                                } else {
+                                    gpui::rgb(0x1e7b34)
+                                })
                                 .text_color(gpui::white())
-                                .child(msg),
+                                .child(crate::filter_bar::notice_text(&msg, err)),
                         )
                     }),
             )
@@ -417,8 +520,8 @@ impl OtmApp {
             .overflow_hidden()
             .rounded_full()
             .bg(t.glass_strong)
-            .border_1()
-            .border_color(if focused { t.accent } else { t.stroke })
+            .when(focused, |d| d.border_2().border_color(t.accent))
+            .when(!focused, |d| d.border_1().border_color(t.text_faint))
             .cursor(gpui::CursorStyle::IBeam)
             .text_sm()
             .on_mouse_down(
@@ -436,18 +539,23 @@ impl OtmApp {
                     .text_color(if focused { t.accent } else { t.text_faint })
                     .child("⌕"),
             )
-            .when(!self.query.is_empty(), |d| {
-                d.child(div().flex_shrink_0().child(self.query.clone()))
-            })
-            .when(focused, |d| {
-                d.child(crate::filter_bar::caret(t, self.caret_on))
+            .when(!self.query.is_empty() || focused, |d| {
+                d.child(self.query_with_caret(t))
             })
             .when(self.query.is_empty(), |d| {
                 d.child(
                     div()
                         .truncate()
                         .text_color(t.text_faint)
-                        .child("Type to filter  ⌘F"),
+                        .child(match self.page {
+                            Page::Users => "Filter users  ⌘F",
+                            Page::Startup => "Filter startup items  ⌘F",
+                            Page::Services => "Filter services  ⌘F",
+                            Page::Connections => "Filter connections  ⌘F",
+                            Page::Apps => "Filter apps  ⌘F",
+                            Page::Disk => "Filter folders  ⌘F",
+                            _ => "Type to filter  ⌘F",
+                        }),
                 )
             })
     }
@@ -493,19 +601,23 @@ impl OtmApp {
                     .items_center()
                     .child(self.filter_chip(t, cx))
                     .child(div().mb_2().text_xs().text_color(t.text_dim).child(
-                        if self.listing.headers.is_empty() {
+                        if self.listing_loading {
                             "Loading…".to_string()
-                        } else {
+                        } else if self.query.trim().is_empty() {
                             format!("{count} shown")
+                        } else {
+                            format!("{count} of {} shown", self.listing.total)
                         },
                     ))
                     .child(div().flex_1())
-                    .child(
-                        div().mb_2().mr_4().child(
-                            ui::pill(t, "refresh", "↻ Refresh", false)
-                                .on_click(cx.listener(|this, _, _, cx| this.load_page(cx))),
-                        ),
-                    ),
+                    .when(self.page != Page::Users, |d| {
+                        d.child(
+                            div().mb_2().mr_4().child(
+                                ui::pill(t, "refresh", "↻ Refresh", false)
+                                    .on_click(cx.listener(|this, _, _, cx| this.load_page(cx))),
+                            ),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -519,10 +631,16 @@ impl OtmApp {
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.text_dim)
-                    .children(
-                        self.listing.headers.iter().enumerate().map(|(i, (h, w))| {
-                            cell(i + 1 == self.listing.headers.len(), *w).child(*h)
-                        }),
+                    .child(
+                        self.sort_header(
+                            t,
+                            Self::listing_table(self.page),
+                            &self.listing.headers,
+                            true,
+                            cx,
+                        )
+                        .flex_1()
+                        .min_w_0(),
                     )
                     .when(has_actions, |d| {
                         d.child(
@@ -540,7 +658,8 @@ impl OtmApp {
                     count,
                     cx.processor(move |this, range: Range<usize>, _, cx| {
                         let rows = this.listing.rows.clone();
-                        let widths: Vec<f32> = this.listing.headers.iter().map(|h| h.1).collect();
+                        let widths: Vec<f32> =
+                            this.listing.headers.iter().map(|h| h.width).collect();
                         range
                             .filter_map(|ix| {
                                 let r = rows.get(ix)?;
@@ -550,8 +669,54 @@ impl OtmApp {
                     }),
                 )
                 .flex_1()
-                .py_1(),
+                .py_1()
+                .track_scroll(self.listing_scroll.clone()),
             )
+            .when(!self.listing_loading && count == 0, |d| {
+                d.child(self.listing_empty(t, cx))
+            })
+    }
+
+    /// What an empty listing says: nothing matches the filter (with a way out), or nothing exists.
+    fn listing_empty(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let filtered = !self.query.trim().is_empty();
+        let what = match self.page {
+            Page::Users => "No users",
+            Page::Startup => "No startup items",
+            Page::Services => "No services",
+            Page::Connections => "No open connections",
+            Page::Apps => "No apps found",
+            _ => "Nothing to show",
+        };
+        div()
+            .absolute()
+            .top(px(200.))
+            .left_0()
+            .right_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(if filtered {
+                        format!("Nothing matches “{}”", self.query.trim())
+                    } else {
+                        what.to_string()
+                    }),
+            )
+            .when(filtered, |d| {
+                d.child(
+                    ui::pill(t, "listing-clear", "Clear filter", true)
+                        .debug_selector(|| "listing-clear".into())
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_filter();
+                            cx.notify();
+                        })),
+                )
+            })
     }
 
     fn render_list_row(
@@ -562,6 +727,7 @@ impl OtmApp {
         widths: &[f32],
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let has_actions = self.listing.rows.iter().any(|r| !r.actions.is_empty());
         div()
             .id(("list-row", ix))
             .w_full()
@@ -578,14 +744,46 @@ impl OtmApp {
             .when(r.dim, |d| d.text_color(t.text_dim))
             .children(r.cells.iter().zip(widths).enumerate().map(|(i, (c, w))| {
                 let last = i + 1 == widths.len();
-                cell(last, *w)
-                    .truncate()
-                    .when(i > 0, |d| d.text_color(t.text_dim))
-                    .child(if last {
-                        c.to_string()
+                let header = self.listing.headers.get(i);
+                let numeric = header.is_some_and(|h| h.numeric);
+                let full = c.to_string();
+                // The last column fills what the list has left after the others and the actions.
+                let room = if last {
+                    let list = f32::from(
+                        self.listing_scroll
+                            .0
+                            .borrow()
+                            .base_handle
+                            .bounds()
+                            .size
+                            .width,
+                    );
+                    let others: f32 = widths[..i].iter().sum();
+                    let actions = if has_actions { ACTIONS_W } else { 0. };
+                    if list > 0. {
+                        list - others - actions - 24.
                     } else {
-                        crate::ui::ellipsize(cx, c.to_string(), *w - 16., self.text_px())
-                    })
+                        *w
+                    }
+                } else {
+                    *w
+                } - 16.;
+                // Paths and endpoints keep their end; everything else ends in "…".
+                let shown = if header
+                    .is_some_and(|h| matches!(h.title, "File" | "Location" | "Endpoint"))
+                {
+                    crate::ui::ellipsize_middle(cx, full.clone(), room, self.text_px())
+                } else {
+                    crate::ui::ellipsize(cx, full.clone(), room, self.text_px())
+                };
+                let cut = shown != full;
+                cell(last, *w)
+                    .id(("list-cell", ix * 16 + i))
+                    .whitespace_nowrap()
+                    .when(numeric, |d| d.text_right().font_family("Menlo").text_xs())
+                    .when(i > 0, |d| d.text_color(t.text_dim))
+                    .child(shown)
+                    .when(cut, |d| d.tooltip(crate::ui::tip(full)))
             }))
             .when(
                 self.listing.rows.iter().any(|r| !r.actions.is_empty()),
@@ -621,6 +819,32 @@ impl OtmApp {
             .map(|i| i.bytes)
             .unwrap_or(1)
             .max(1);
+        use crate::tables::{SortKey as K, sort_items};
+        let q = self.query.trim().to_lowercase();
+        let mut folders: Vec<sysops::FolderSize> = latest
+            .iter()
+            .flat_map(|s| s.items.iter().cloned())
+            .filter(|f| q.is_empty() || f.path.to_lowercase().contains(&q))
+            .collect();
+        sort_items(&mut folders, self.table_sort("folders"), |f, c| {
+            if c == 0 {
+                K::text(&f.path)
+            } else {
+                K::num(f.bytes as f64)
+            }
+        });
+        let mut scans: Vec<(u64, usize, u64)> = self
+            .scans
+            .iter()
+            .map(|s| (s.at, s.items.len(), s.items.iter().map(|i| i.bytes).sum()))
+            .collect();
+        sort_items(&mut scans, self.table_sort("scans"), |s, c| {
+            K::num(match c {
+                0 => s.0 as f64,
+                1 => s.1 as f64,
+                _ => s.2 as f64,
+            })
+        });
         self.page_frame(
             t,
             "Disk Space",
@@ -630,6 +854,7 @@ impl OtmApp {
                 format!("{} saved scans", self.scans.len())
             },
         )
+        .child(self.filter_chip(t, cx))
         .child(
             div()
                 .id("disk-scroll")
@@ -662,9 +887,9 @@ impl OtmApp {
                                 )
                                 .child(div().text_xs().text_color(t.text_dim).child(format!(
                                     "{} used of {} · {} free",
-                                    fmt_bytes(used),
-                                    fmt_bytes(d.total),
-                                    fmt_bytes(d.available)
+                                    fmt_size(used),
+                                    fmt_size(d.total),
+                                    fmt_size(d.available)
                                 )))
                                 .child(ui::meter(t, pct, t.load_color(pct)))
                         })),
@@ -715,47 +940,44 @@ impl OtmApp {
                                     .child("No scan yet. Press Scan now."),
                             )
                         })
-                        .children(
-                            latest
-                                .iter()
-                                .flat_map(|s| s.items.iter().cloned())
-                                .enumerate()
-                                .map(|(i, item)| {
-                                    let path = item.path.clone();
-                                    div()
-                                        .id(("folder", i))
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap_3()
-                                        .py_1()
-                                        .cursor_pointer()
-                                        .hover(|h| h.bg(t.glass_hover))
-                                        .rounded(px(6.))
-                                        .child(
-                                            div()
-                                                .w(px(340.))
-                                                .truncate()
-                                                .text_sm()
-                                                .child(item.path.clone()),
-                                        )
-                                        .child(div().flex_1().child(ui::meter(
-                                            t,
-                                            item.bytes as f32 / max as f32 * 100.,
-                                            t.accent.into(),
-                                        )))
-                                        .child(
-                                            div()
-                                                .w(px(90.))
-                                                .text_sm()
-                                                .text_right()
-                                                .child(fmt_bytes(item.bytes)),
-                                        )
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.perform(Action::Reveal(path.clone()), cx)
-                                        }))
-                                }),
-                        ),
+                        .when(latest.is_some(), |d| {
+                            d.child(self.sort_header(t, "folders", &FOLDER_COLS, true, cx))
+                        })
+                        .children(folders.into_iter().enumerate().map(|(i, item)| {
+                            let path = item.path.clone();
+                            div()
+                                .id(("folder", i))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_3()
+                                .py_1()
+                                .cursor_pointer()
+                                .hover(|h| h.bg(t.glass_hover))
+                                .rounded(px(6.))
+                                .child(cell(false, FOLDER_COLS[0].width).text_sm().child(
+                                    ui::ellipsize(
+                                        cx,
+                                        item.path.clone(),
+                                        FOLDER_COLS[0].width - 16.,
+                                        self.text_px(),
+                                    ),
+                                ))
+                                .child(
+                                    cell(false, FOLDER_COLS[1].width)
+                                        .text_sm()
+                                        .text_right()
+                                        .child(fmt_size(item.bytes)),
+                                )
+                                .child(cell(true, 0.).child(ui::meter(
+                                    t,
+                                    item.bytes as f32 / max as f32 * 100.,
+                                    t.accent.into(),
+                                )))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.perform(Action::Reveal(path.clone()), cx)
+                                }))
+                        })),
                 )
                 .child(
                     card(t)
@@ -764,28 +986,31 @@ impl OtmApp {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Scan history"),
                         )
-                        .children(self.scans.iter().map(|s| {
-                            let total: u64 = s.items.iter().map(|i| i.bytes).sum();
-                            let ago = sysops::now_secs().saturating_sub(s.at);
+                        .when(!self.scans.is_empty(), |d| {
+                            d.child(self.sort_header(t, "scans", &SCAN_COLS, true, cx))
+                        })
+                        .children(scans.into_iter().map(|(at, folders, total)| {
+                            let ago = sysops::now_secs().saturating_sub(at);
                             div()
                                 .flex()
                                 .flex_row()
                                 .text_sm()
                                 .child(
-                                    div()
-                                        .w(px(160.))
+                                    cell(false, SCAN_COLS[0].width)
+                                        .text_right()
                                         .child(format!("{} ago", fmt_duration(ago))),
                                 )
                                 .child(
-                                    div()
-                                        .w(px(140.))
+                                    cell(false, SCAN_COLS[1].width)
+                                        .text_right()
                                         .text_color(t.text_dim)
-                                        .child(format!("{} folders", s.items.len())),
+                                        .child(folders.to_string()),
                                 )
                                 .child(
-                                    div()
+                                    cell(true, 0.)
+                                        .text_right()
                                         .text_color(t.text_dim)
-                                        .child(format!("{} counted", fmt_bytes(total))),
+                                        .child(fmt_size(total)),
                                 )
                         })),
                 ),
@@ -932,12 +1157,12 @@ impl OtmApp {
                 .child(metric(
                     "SINGLE CORE",
                     v(|r| r.single_core, "Mops/s"),
-                    "integer mixing, 1 thread",
+                    "integer mixing, 1 thread · higher is better",
                 ))
                 .child(metric(
                     "ALL CORES",
                     v(|r| r.multi_core, "Mops/s"),
-                    "same workload on every logical core",
+                    "same workload on every logical core · higher is better",
                 ))
                 .child(metric(
                     "SCALING",
@@ -957,17 +1182,17 @@ impl OtmApp {
                     b.as_ref()
                         .map(|r| format!("{:.1} GB/s", r.memory_gbps))
                         .unwrap_or_else(|| "—".into()),
-                    "256 MB copy, 4 passes",
+                    "256 MB copy, 4 passes · higher is better",
                 ))
                 .child(metric(
                     "DISK WRITE",
                     v(|r| r.disk_write_mbps, "MB/s"),
-                    "512 MB sequential, cache bypassed",
+                    "512 MB sequential, cache bypassed · higher is better",
                 ))
                 .child(metric(
                     "DISK READ",
                     v(|r| r.disk_read_mbps, "MB/s"),
-                    "512 MB sequential, cache bypassed",
+                    "512 MB sequential, cache bypassed · higher is better",
                 )),
         )
     }
@@ -1291,14 +1516,18 @@ impl OtmApp {
 const ACTIONS_W: f32 = 230.;
 
 /// A table cell: fixed width, except the last column which takes the remaining space.
-fn cell(last: bool, width: f32) -> Div {
-    let d = div().px_2().overflow_hidden();
-    if last {
-        d.flex_1().min_w_0()
-    } else {
-        d.flex_shrink_0().w(px(width))
-    }
-}
+const FOLDER_COLS: [Col; 3] = [
+    crate::tables::text("Folder", 340.),
+    crate::tables::num("Size", 100.),
+    crate::tables::num("Share", 0.),
+];
+
+/// "When" sorts by time: newest first on the first click.
+const SCAN_COLS: [Col; 3] = [
+    crate::tables::num("When", 160.),
+    crate::tables::num("Folders", 100.),
+    crate::tables::num("Total", 0.),
+];
 
 fn card(t: &Theme) -> Div {
     div()

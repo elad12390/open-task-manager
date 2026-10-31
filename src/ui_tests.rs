@@ -852,9 +852,25 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     println!("Copy PID -> clipboard {copied:?}");
     assert_eq!(copied, Some(pid.to_string()));
 
-    // Force Quit.
+    // Force Quit asks first: Esc (or Return, the default Cancel) leaves the process running.
     open_menu(cx);
-    click(cx, "ctx-Force Quit");
+    click(cx, "ctx-Force Quit…");
+    assert!(
+        cx.debug_bounds("confirm").is_some(),
+        "the confirmation is shown"
+    );
+    cx.simulate_keystrokes("escape");
+    assert!(view.read_with(cx, |app, _| app.confirm.is_none()));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        victim.0.try_wait().unwrap().is_none(),
+        "cancelled: still running"
+    );
+
+    // Confirming it ends the process.
+    open_menu(cx);
+    click(cx, "ctx-Force Quit…");
+    click(cx, "confirm-force-quit");
     let mut status = None;
     for _ in 0..50 {
         status = victim.0.try_wait().unwrap();
@@ -869,18 +885,19 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     assert!(!status.success());
     assert_eq!(notice, Some(("Force quit 1 process".into(), false)));
 
-    // macOS's own group cannot be mass-killed from the menu.
+    // macOS's own group cannot be mass-killed from the menu: those items are not offered at all.
     let os_items = view.read_with(cx, |app, _| {
         app.context_items(&RowId::Group(crate::categories::OS_OWNER.into()))
             .into_iter()
-            .filter(|i| i.label.contains("Quit"))
-            .map(|i| (i.label, i.enabled))
+            .map(|i| i.label)
+            .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
     });
     println!("Operating System group menu: {os_items:?}");
+    assert!(!os_items.is_empty(), "the group still has a menu");
     assert!(
-        !os_items.is_empty() && os_items.iter().all(|i| !i.1),
-        "Quit All is disabled for the OS"
+        os_items.iter().all(|l| !l.contains("Quit")),
+        "no Quit All for the OS"
     );
 
     // App icons were rendered to 32x32 PNGs.
@@ -1148,5 +1165,170 @@ fn filter_field_chips_and_toolbar(cx: &mut TestAppContext) {
         println!("{selector}: {:?}..{:?}", b.left(), b.right());
         assert!(b.right() <= px(860.), "{selector} overflows the window");
     }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Every listing table sorts by clicking a header (numbers by value, biggest first; a second click
+/// reverses) and its filter searches every column.
+#[gpui::test]
+fn listing_tables_sort_and_filter(cx: &mut TestAppContext) {
+    use crate::app::Page;
+    use crate::sysops::InstalledApp;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("otm-ui-tables-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // SAFETY: single-threaded test setup before any app code reads the variable.
+    unsafe { std::env::set_var("OTM_DATA_DIR", &dir) };
+
+    let (view, cx) = cx.add_window_view(OtmApp::new);
+    cx.executor().advance_clock(Duration::from_millis(1500));
+    cx.run_until_parked();
+
+    // Installed apps with sizes that sort differently as text ("9.0 MB" > "10.0 MB") and as numbers.
+    const MB: u64 = 1024 * 1024;
+    let names = |app: &OtmApp, _: &gpui::App| -> Vec<String> {
+        app.listing
+            .rows
+            .iter()
+            .map(|r| r.cells[0].to_string())
+            .collect()
+    };
+    view.update(cx, |app, cx| {
+        app.page = Page::Apps;
+        app.apps = [
+            ("Beta", "1.10", 9),
+            ("alpha", "1.9", 10),
+            ("Gamma", "2.0", 512),
+        ]
+        .into_iter()
+        .map(|(name, version, mb)| InstalledApp {
+            name: name.into(),
+            version: version.into(),
+            path: PathBuf::from(format!("/Applications/{name}.app")),
+            bytes: Some(mb * MB),
+        })
+        .collect();
+        app.rebuild_listing();
+        cx.notify();
+    });
+
+    click(cx, "sort-apps-2");
+    let by_size = view.read_with(cx, names);
+    println!("Size, first click: {by_size:?}");
+    assert_eq!(
+        by_size,
+        ["Gamma", "alpha", "Beta"],
+        "biggest first, by bytes not text"
+    );
+    click(cx, "sort-apps-2");
+    assert_eq!(
+        view.read_with(cx, names),
+        ["Beta", "alpha", "Gamma"],
+        "second click reverses"
+    );
+
+    click(cx, "sort-apps-0");
+    assert_eq!(
+        view.read_with(cx, names),
+        ["alpha", "Beta", "Gamma"],
+        "names A to Z, any case"
+    );
+    click(cx, "sort-apps-1");
+    assert_eq!(
+        view.read_with(cx, names),
+        ["alpha", "Beta", "Gamma"],
+        "versions 1.9 < 1.10 < 2.0"
+    );
+
+    // The filter searches every column: here the Location column.
+    view.update(cx, |app, cx| {
+        app.query = "gamma.app".into();
+        app.rebuild_listing();
+        cx.notify();
+    });
+    assert_eq!(view.read_with(cx, names), ["Gamma"]);
+
+    // Users is a live table too: sorting by process count keeps the biggest account first.
+    view.update(cx, |app, cx| {
+        app.query.clear();
+        app.open_page(Page::Users, cx);
+        cx.notify();
+    });
+    click(cx, "sort-users-1");
+    let counts: Vec<usize> = view.read_with(cx, |app, _| {
+        app.listing
+            .rows
+            .iter()
+            .map(|r| r.cells[1].parse().unwrap())
+            .collect()
+    });
+    println!("users by process count: {counts:?}");
+    assert!(counts.len() >= 2 && counts.windows(2).all(|w| w[0] >= w[1]));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The filter field edits at a caret, Space types, a chip turns back into text, a threshold with no
+/// number shows a hint, and toolbar Force Quit does nothing without a selection.
+#[gpui::test]
+fn filter_caret_chip_edit_and_disabled_toolbar(cx: &mut TestAppContext) {
+    use crate::filter::Chip;
+    use std::time::Duration;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("otm-ui-caret-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // SAFETY: single-threaded test setup before any app code reads the variable.
+    unsafe { std::env::set_var("OTM_DATA_DIR", &dir) };
+
+    let (view, cx) = cx.add_window_view(OtmApp::new);
+    cx.executor().advance_clock(Duration::from_millis(1500));
+    cx.run_until_parked();
+
+    // Typing at the caret: "abc", two steps left, "X" -> "aXbc"; Space types a space.
+    click(cx, "filter-field");
+    cx.simulate_input("abc");
+    cx.simulate_keystrokes("left left");
+    cx.simulate_input("X");
+    assert_eq!(view.read_with(cx, |app, _| app.query.clone()), "aXbc");
+    cx.simulate_keystrokes("end space");
+    assert_eq!(view.read_with(cx, |app, _| app.query.clone()), "aXbc ");
+    cx.simulate_keystrokes("backspace backspace");
+    assert_eq!(view.read_with(cx, |app, _| app.query.clone()), "aXb");
+
+    // A threshold with no number yet says what to type.
+    view.update(cx, |app, cx| {
+        app.clear_filter();
+        cx.notify();
+    });
+    cx.simulate_input("cpu>abc");
+    assert!(
+        cx.debug_bounds("filter-hint").is_some(),
+        "the hint is shown"
+    );
+
+    // Clicking a chip puts it back in the field as text, ready to change.
+    view.update(cx, |app, cx| {
+        app.clear_filter();
+        app.add_chip(Chip::CpuAbove(5.));
+        app.focus_filter();
+        cx.notify();
+    });
+    click(cx, "filter-chip-0");
+    let (chips, query) = view.read_with(cx, |app, _| (app.chips.clone(), app.query.clone()));
+    assert!(chips.is_empty());
+    assert_eq!(query, "cpu>5");
+
+    // Without a selection the toolbar's Force Quit is inert (it stays, dimmed, so nothing shifts).
+    view.update(cx, |app, cx| {
+        app.clear_filter();
+        app.blur_filter();
+        app.selected = None;
+        cx.notify();
+    });
+    click(cx, "force-quit");
+    assert!(view.read_with(cx, |app, _| app.confirm.is_none()));
     std::fs::remove_dir_all(&dir).ok();
 }

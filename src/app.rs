@@ -98,7 +98,13 @@ impl Page {
     pub fn filterable(self) -> bool {
         matches!(
             self,
-            Page::Processes | Page::Startup | Page::Services | Page::Connections | Page::Apps
+            Page::Processes
+                | Page::Users
+                | Page::Startup
+                | Page::Services
+                | Page::Connections
+                | Page::Apps
+                | Page::Disk
         )
     }
 }
@@ -127,10 +133,19 @@ pub struct OtmApp {
     pub caret_on: bool,
     /// Processes that match the filter (shown in the subtitle while filtering).
     pub match_count: usize,
+    /// Caret position in `query`, counted in characters from the end (0 = at the end), so text
+    /// set from elsewhere keeps the caret at its end.
+    pub caret_back: usize,
     pub collapsed: HashSet<String>,
     pub rows: Rc<Vec<Row>>,
     pub resizing: Option<Resize>,
     pub column_menu: bool,
+    /// Sort chosen for each table outside the process list (see `tables`).
+    pub table_sorts: std::collections::HashMap<&'static str, (usize, bool)>,
+    /// The listing page's data is still being read.
+    pub listing_loading: bool,
+    /// The listing's list, for its on-screen width (the last column fills what is left).
+    pub listing_scroll: UniformListScrollHandle,
     /// The press that is in progress closed the Columns menu (see the Columns button).
     pub column_menu_just_closed: bool,
     pub selected: Option<u32>,
@@ -167,6 +182,10 @@ pub struct OtmApp {
     pub owner_bundles: std::collections::HashMap<String, String>,
     /// Right-click menu: the row it is for and where it opened.
     pub context_menu: Option<(crate::processes::RowId, gpui::Point<Pixels>)>,
+    /// A Force Quit waiting for confirmation.
+    pub confirm: Option<crate::context_menu::Confirm>,
+    /// The page the window title was last set for.
+    pub titled: Option<Page>,
     /// `--demo`: fictional data and a scripted tour; nothing real is read or signalled.
     pub demo_mode: bool,
     pub demo_tick: u64,
@@ -230,7 +249,15 @@ impl OtmApp {
                                 frames.push(Frame::from_snapshot(&snapshot));
                             }
                             app.snapshot = snapshot;
+                            if app.selected.is_some_and(|pid| {
+                                !app.snapshot.processes.iter().any(|p| p.pid == pid)
+                            }) {
+                                app.selected = None;
+                            }
                             app.rebuild_rows();
+                            if app.page == crate::app::Page::Users {
+                                app.rebuild_listing();
+                            }
                             app.request_icons(cx);
                             cx.notify();
                         })
@@ -276,10 +303,14 @@ impl OtmApp {
             suggest_ix: 0,
             caret_on: true,
             match_count: 0,
+            caret_back: 0,
             collapsed: HashSet::new(),
             rows: Rc::new(Vec::new()),
             resizing: None,
             column_menu: false,
+            table_sorts: Default::default(),
+            listing_loading: false,
+            listing_scroll: UniformListScrollHandle::new(),
             column_menu_just_closed: false,
             selected: None,
             cursor: None,
@@ -309,6 +340,8 @@ impl OtmApp {
             icons_requested: HashSet::new(),
             owner_bundles: Default::default(),
             context_menu: None,
+            confirm: None,
+            titled: None,
             demo_mode: false,
             demo_tick: 0,
             demo_removed: Vec::new(),
@@ -363,6 +396,14 @@ impl OtmApp {
 
     fn on_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
+        if self.confirm.is_some() {
+            if matches!(k.key.as_str(), "escape" | "enter") {
+                self.confirm = None;
+                cx.notify();
+            }
+            cx.stop_propagation();
+            return;
+        }
         // The suggestions panel takes ↑↓, ⏎/⇥ and Esc while it is open.
         if self.page == Page::Processes
             && self.filter_focused
@@ -403,6 +444,39 @@ impl OtmApp {
                 return;
             }
         }
+        // With text in the field, ←→/Home/End move the caret, and ↓ reopens the suggestions.
+        if self.filter_focused && !self.query.is_empty() && !k.modifiers.control {
+            let len = self.query.chars().count();
+            let handled = match (k.key.as_str(), k.modifiers.platform) {
+                ("left", false) if !k.modifiers.alt => {
+                    self.caret_back = (self.caret_back + 1).min(len);
+                    true
+                }
+                ("right", false) if !k.modifiers.alt => {
+                    self.caret_back = self.caret_back.saturating_sub(1);
+                    true
+                }
+                ("left", true) | ("home", _) => {
+                    self.caret_back = len;
+                    true
+                }
+                ("right", true) | ("end", _) => {
+                    self.caret_back = 0;
+                    true
+                }
+                ("down", false) if self.page == Page::Processes && !self.suggest_open => {
+                    self.suggest_open = true;
+                    true
+                }
+                _ => false,
+            };
+            if handled {
+                self.caret_on = true;
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
+        }
         if self.page == Page::Processes && !k.modifiers.control {
             let nav = match (k.key.as_str(), k.modifiers.platform) {
                 ("right", false) if k.modifiers.alt => Some(Nav::ExpandAll),
@@ -416,7 +490,9 @@ impl OtmApp {
                 ("left", false) => Some(Nav::Left),
                 ("right", false) => Some(Nav::Right),
                 // Space types into the filter once you have started typing one.
-                ("space", false) if self.query.is_empty() => Some(Nav::Toggle),
+                ("space", false) if self.query.is_empty() && !self.filter_focused => {
+                    Some(Nav::Toggle)
+                }
                 _ => None,
             };
             if let Some(nav) = nav {
@@ -444,6 +520,7 @@ impl OtmApp {
                 // Esc clears the filter first, and leaves the field once it is empty.
                 if self.filter_active() {
                     self.query.clear();
+                    self.caret_back = 0;
                     self.chips.clear();
                 } else {
                     self.blur_filter();
@@ -457,21 +534,26 @@ impl OtmApp {
                 }
             }
             "backspace" if k.modifiers.alt => {
-                // ⌥⌫ deletes the last word.
-                let kept = self.query.trim_end().len();
+                // ⌥⌫ deletes the word before the caret.
+                let at = self.caret_byte();
+                let kept = self.query[..at].trim_end().len();
                 let cut = self.query[..kept]
                     .rfind(|c: char| c.is_whitespace() || c == ':' || c == '>')
                     .map_or(0, |i| i + 1);
-                self.query.truncate(cut);
+                self.query.replace_range(cut..at, "");
                 self.focus_filter();
             }
             "backspace" => {
-                self.query.pop();
+                let at = self.caret_byte();
+                if let Some((i, _)) = self.query[..at].char_indices().next_back() {
+                    self.query.replace_range(i..at, "");
+                }
                 self.focus_filter();
             }
             _ => match &k.key_char {
                 Some(ch) if self.page.filterable() && !ch.chars().any(char::is_control) => {
-                    self.query.push_str(ch);
+                    let at = self.caret_byte();
+                    self.query.insert_str(at, ch);
                     self.focus_filter();
                 }
                 _ => return,
@@ -588,7 +670,7 @@ impl OtmApp {
                             div()
                                 .text_xs()
                                 .text_color(t.warn)
-                                .child("Updates paused · ⌘P resumes"),
+                                .child("Updates paused · ⌥⌘P resumes"),
                         )
                     })
                     .child(mini_meter(t, "CPU", s.cpu))
@@ -627,7 +709,7 @@ fn mini_meter(t: &Theme, label: &'static str, pct: f32) -> impl IntoElement {
                 .text_xs()
                 .text_color(t.text_dim)
                 .child(label)
-                .child(format!("{pct:.0}%")),
+                .child(crate::metrics::fmt_pct(pct)),
         )
         .child(ui::meter(t, pct, t.load_color(pct)))
 }
@@ -636,11 +718,23 @@ impl Render for OtmApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Theme::resolve(window.appearance(), &self.settings);
         window.set_rem_size(px(16. * self.settings.text_scale as f32 / 100.));
+        if self.titled != Some(self.page) {
+            window.set_window_title(&format!("{} — Open Task Manager", self.page.label()));
+            self.titled = Some(self.page);
+        }
         self.sync_menus(cx);
         let content = match self.page {
             Page::Overview => self.render_overview(&t).into_any_element(),
             Page::Processes => self.render_processes(&t, cx).into_any_element(),
-            Page::Users => self.render_users(&t).into_any_element(),
+            Page::Users => self
+                .render_listing(
+                    &t,
+                    "Users",
+                    "Processes, CPU and memory per account. Group Processes by User for the full list."
+                        .into(),
+                    cx,
+                )
+                .into_any_element(),
             Page::Startup => self
                 .render_listing(
                     &t,
@@ -705,6 +799,9 @@ impl Render for OtmApp {
             .text_color(t.text)
             .child(self.sidebar(&t, cx))
             .child(div().flex_1().h_full().min_w_0().child(content))
+            .when_some(self.confirm.clone(), |d, c| {
+                d.child(self.render_confirm(&t, c, cx))
+            })
             .when_some(self.demo_caption.clone(), |d, text| {
                 // Demo caption: a glass pill centred at the bottom of the window.
                 d.child(
