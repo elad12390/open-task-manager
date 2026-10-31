@@ -185,6 +185,31 @@ pub fn scrollbar(
     ))
 }
 
+/// A vertically scrolling page body with its overlay bar. The bar shows only when `body` overflows.
+pub fn scroll_area(
+    t: &Theme,
+    id: &'static str,
+    bar: &'static str,
+    handle: &ScrollHandle,
+    body: Div,
+    cx: &mut Context<OtmApp>,
+) -> Div {
+    let area = body
+        .id(id)
+        .size_full()
+        .overflow_y_scroll()
+        .track_scroll(handle);
+    div()
+        .relative()
+        .size_full()
+        .flex_1()
+        .min_h_0()
+        .child(area)
+        .when_some(scrollbar(t, bar, Axis::Vertical, handle, cx), |d, b| {
+            d.child(b)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

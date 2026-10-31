@@ -177,6 +177,13 @@ pub struct OtmApp {
     pub scroll: UniformListScrollHandle,
     /// Horizontal scroll of the process table (header and rows together).
     pub hscroll: gpui::ScrollHandle,
+    /// Scroll position of the pages whose body can overflow (see `scrollbar::scroll_area`).
+    pub overview_scroll: gpui::ScrollHandle,
+    pub disk_scroll: gpui::ScrollHandle,
+    pub power_scroll: gpui::ScrollHandle,
+    pub bench_scroll: gpui::ScrollHandle,
+    pub rec_scroll: gpui::ScrollHandle,
+    pub settings_scroll: gpui::ScrollHandle,
     pub listing: Listing,
     pub startup: Vec<StartupItem>,
     pub services: Vec<Service>,
@@ -374,6 +381,12 @@ impl OtmApp {
             focus,
             scroll: UniformListScrollHandle::new(),
             hscroll: gpui::ScrollHandle::new(),
+            overview_scroll: gpui::ScrollHandle::new(),
+            disk_scroll: gpui::ScrollHandle::new(),
+            power_scroll: gpui::ScrollHandle::new(),
+            bench_scroll: gpui::ScrollHandle::new(),
+            rec_scroll: gpui::ScrollHandle::new(),
+            settings_scroll: gpui::ScrollHandle::new(),
             listing: Listing::default(),
             startup: Vec::new(),
             services: Vec::new(),
@@ -850,7 +863,7 @@ impl Render for OtmApp {
         }
         self.sync_menus(cx);
         let content = match self.page {
-            Page::Overview => self.render_overview(&t).into_any_element(),
+            Page::Overview => self.render_overview(&t, cx).into_any_element(),
             Page::Processes => self.render_processes(&t, cx).into_any_element(),
             Page::Users => self
                 .render_listing(
@@ -895,7 +908,7 @@ impl Render for OtmApp {
                 )
                 .into_any_element(),
             Page::Disk => self.render_disk(&t, cx).into_any_element(),
-            Page::Power => self.render_power(&t).into_any_element(),
+            Page::Power => self.render_power(&t, cx).into_any_element(),
             Page::Benchmarks => self.render_bench(&t, cx).into_any_element(),
             Page::Recorder => self.render_recorder(&t, cx).into_any_element(),
             Page::Settings => self.render_settings(&t, cx).into_any_element(),

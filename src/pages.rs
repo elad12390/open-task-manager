@@ -1269,11 +1269,12 @@ impl OtmApp {
             },
         )
         .child(self.page_filter(t, cx))
-        .child(
+        .child(scrollbar::scroll_area(
+            t,
+            "disk-scroll",
+            "disk-vbar",
+            &self.disk_scroll,
             div()
-                .id("disk-scroll")
-                .flex_1()
-                .overflow_y_scroll()
                 .px_4()
                 .pb_4()
                 .flex()
@@ -1436,10 +1437,11 @@ impl OtmApp {
                                 )
                         })),
                 ),
-        )
+            cx,
+        ))
     }
 
-    pub fn render_power(&self, t: &Theme) -> impl IntoElement {
+    pub fn render_power(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.power.clone().unwrap_or_default();
         let row = |k: &'static str, v: String| {
             div()
@@ -1456,7 +1458,11 @@ impl OtmApp {
             "Power & Thermal",
             "Battery, charger and thermal state from pmset and ioreg".into(),
         )
-        .child(
+        .child(scrollbar::scroll_area(
+            t,
+            "power-scroll",
+            "power-vbar",
+            &self.power_scroll,
             div()
                 .px_4()
                 .pb_4()
@@ -1516,7 +1522,8 @@ impl OtmApp {
                         ))
                         .child(row("CPU frequency", "Needs root (powermetrics)".into())),
                 ),
-        )
+            cx,
+        ))
     }
 
     pub fn render_bench(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1568,7 +1575,11 @@ impl OtmApp {
                 })),
             ),
         )
-        .child(
+        .child(scrollbar::scroll_area(
+            t,
+            "bench-scroll",
+            "bench-vbar",
+            &self.bench_scroll,
             div()
                 .px_4()
                 .pb_4()
@@ -1616,7 +1627,8 @@ impl OtmApp {
                     v(|r| r.disk_read_mbps, "MB/s"),
                     "512 MB sequential, cache bypassed · higher is better",
                 )),
-        )
+            cx,
+        ))
     }
 
     pub fn render_recorder(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1673,11 +1685,12 @@ impl OtmApp {
                     )
                 }),
         )
-        .child(
+        .child(scrollbar::scroll_area(
+            t,
+            "rec-scroll",
+            "rec-vbar",
+            &self.rec_scroll,
             div()
-                .id("rec-scroll")
-                .flex_1()
-                .overflow_y_scroll()
                 .px_4()
                 .pb_4()
                 .flex()
@@ -1761,7 +1774,8 @@ impl OtmApp {
                                 }))
                         })),
                 ),
-        )
+            cx,
+        ))
     }
 
     pub fn render_settings(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1783,7 +1797,11 @@ impl OtmApp {
                 sysops::data_dir().join("native-settings.json").display()
             ),
         )
-        .child(
+        .child(scrollbar::scroll_area(
+            t,
+            "settings-scroll",
+            "settings-vbar",
+            &self.settings_scroll,
             div().px_4().pb_4().child(
                 card(t)
                     .child(row(
@@ -1955,7 +1973,8 @@ impl OtmApp {
                             .into_any_element(),
                     )),
             ),
-        )
+            cx,
+        ))
     }
 }
 
