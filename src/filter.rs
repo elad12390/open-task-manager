@@ -19,6 +19,11 @@ pub enum Chip {
     State(String),
     CpuAbove(f32),
     MemoryAbove(u64),
+    /// A value of one listing column, such as State "Running" (see `suggest_rows`).
+    Column {
+        title: &'static str,
+        value: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -29,6 +34,7 @@ pub enum Kind {
     State,
     Cpu,
     Memory,
+    Column(&'static str),
 }
 
 impl Kind {
@@ -40,6 +46,7 @@ impl Kind {
             Kind::State => "State",
             Kind::Cpu => "CPU",
             Kind::Memory => "Memory",
+            Kind::Column(title) => title,
         }
     }
 }
@@ -53,6 +60,7 @@ impl Chip {
             Chip::State(_) => Kind::State,
             Chip::CpuAbove(_) => Kind::Cpu,
             Chip::MemoryAbove(_) => Kind::Memory,
+            Chip::Column { title, .. } => Kind::Column(title),
         }
     }
 
@@ -61,6 +69,7 @@ impl Chip {
             Chip::App(s) | Chip::User(s) | Chip::Category(s) | Chip::State(s) => s.clone(),
             Chip::CpuAbove(x) => format!("> {x}%"),
             Chip::MemoryAbove(b) => format!("> {}", fmt_bytes(*b)),
+            Chip::Column { value, .. } => value.clone(),
         }
     }
 
@@ -72,8 +81,44 @@ impl Chip {
             Chip::State(s) => &p.state == s,
             Chip::CpuAbove(x) => p.cpu > *x,
             Chip::MemoryAbove(b) => p.memory > *b,
+            // Column chips filter listing rows, never processes.
+            Chip::Column { .. } => true,
         }
     }
+
+    fn matches_row(&self, titles: &[&str], cells: &[impl AsRef<str>]) -> bool {
+        match self {
+            Chip::Column { title, value } => titles
+                .iter()
+                .position(|t| t == title)
+                .and_then(|i| cells.get(i))
+                .is_some_and(|c| c.as_ref() == value),
+            _ => true,
+        }
+    }
+}
+
+/// Whether some chip of every kind matches: chips of one kind widen, chips of different kinds narrow.
+fn all_kinds_match(chips: &[Chip], hit: impl Fn(&Chip) -> bool) -> bool {
+    let kinds: HashSet<Kind> = chips.iter().map(Chip::kind).collect();
+    kinds
+        .into_iter()
+        .all(|k| chips.iter().filter(|c| c.kind() == k).any(&hit))
+}
+
+/// A listing row passes when its cells contain the typed text and it satisfies the column chips.
+pub fn listing_matches(
+    chips: &[Chip],
+    text: &str,
+    titles: &[&str],
+    cells: &[impl AsRef<str>],
+) -> bool {
+    let text = text.trim().to_lowercase();
+    (text.is_empty()
+        || cells
+            .iter()
+            .any(|c| c.as_ref().to_lowercase().contains(&text)))
+        && all_kinds_match(chips, |c| c.matches_row(titles, cells))
 }
 
 /// A ready-to-use filter over one snapshot.
@@ -107,26 +152,46 @@ impl<'a> Filter<'a> {
             || p.owner_app.to_lowercase().contains(&self.text)
             || p.user.to_lowercase().contains(&self.text)
             || p.pid.to_string().starts_with(&self.text);
-        if !text_ok {
-            return false;
-        }
-        let mut kinds: Vec<Kind> = self.chips.iter().map(Chip::kind).collect();
-        kinds.dedup();
-        let kinds: HashSet<Kind> = kinds.into_iter().collect();
-        kinds.into_iter().all(|k| {
-            self.chips
-                .iter()
-                .filter(|c| c.kind() == k)
-                .any(|c| c.matches(p, &self.categories))
-        })
+        text_ok && all_kinds_match(self.chips, |c| c.matches(p, &self.categories))
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Suggestion {
     pub chip: Chip,
-    /// How many processes the chip alone would match.
+    /// How many processes (or listing rows) the chip alone would match.
     pub count: usize,
+}
+
+impl Suggestion {
+    pub fn count_label(&self) -> String {
+        let (one, many) = match self.chip.kind() {
+            Kind::Column(_) => ("row", "rows"),
+            _ => ("process", "processes"),
+        };
+        format!(
+            "{} {}",
+            self.count,
+            if self.count == 1 { one } else { many }
+        )
+    }
+}
+
+/// How `value` matches the lowercase `needle`: prefix, then word prefix, then inside. `None` if not at all.
+fn match_rank(value: &str, needle: &str) -> Option<u8> {
+    let lower = value.to_lowercase();
+    if lower.starts_with(needle) {
+        Some(0)
+    } else if lower
+        .split([' ', '.', '-', '_', '&'])
+        .any(|w| w.starts_with(needle))
+    {
+        Some(1)
+    } else if lower.contains(needle) {
+        Some(2)
+    } else {
+        None
+    }
 }
 
 /// `cpu>5`, `cpu 5`, `mem>500`, `mem > 1.5g`, `memory>200mb`: a numeric chip, if `text` is one.
@@ -249,21 +314,11 @@ pub fn suggest(text: &str, chosen: &[Chip], processes: &[ProcessInfo]) -> Vec<Su
         // A category named after an app adds nothing over the app itself.
         .filter(|((k, v), _)| *k != Kind::Category || !apps.contains(v))
         .filter_map(|((k, v), (n, memory))| {
-            let lower = v.to_lowercase();
             let rank = if needle.is_empty() {
                 // Nothing typed: the heaviest apps first, then everything else.
                 if k == Kind::App { 1 } else { 3 }
-            } else if lower.starts_with(needle) {
-                0
-            } else if lower
-                .split([' ', '.', '-', '_', '&'])
-                .any(|w| w.starts_with(needle))
-            {
-                1
-            } else if lower.contains(needle) {
-                2
             } else {
-                return None;
+                match_rank(&v, needle)?
             };
             let chip = match k {
                 Kind::App => Chip::App(v),
@@ -278,6 +333,69 @@ pub fn suggest(text: &str, chosen: &[Chip], processes: &[ProcessInfo]) -> Vec<Su
     out.extend(ranked.into_iter().map(|(_, _, s)| s));
     out.truncate(LIMIT);
     out
+}
+
+/// Suggestions for a listing: the distinct values of each column of `rows`. `column:` restricts
+/// them to one column. With nothing typed only low-cardinality columns are offered, so near-unique
+/// columns such as paths appear once the typed text matches them.
+pub fn suggest_rows<S: AsRef<str>>(
+    text: &str,
+    chosen: &[Chip],
+    titles: &[&'static str],
+    rows: &[Vec<S>],
+) -> Vec<Suggestion> {
+    const LIMIT: usize = 8;
+    const LOW_CARDINALITY: usize = 12;
+    let t = text.trim().to_lowercase();
+    let column = t.split_once(':').and_then(|(name, rest)| {
+        let i = titles
+            .iter()
+            .position(|c| c.to_lowercase() == name.trim())?;
+        Some((i, rest.trim()))
+    });
+    let (only, needle) = match column {
+        Some((i, rest)) => (Some(i), rest),
+        None => (None, t.as_str()),
+    };
+
+    let mut values: HashMap<(usize, &str), usize> = HashMap::new();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            let v = cell.as_ref();
+            let blank = v.is_empty() || v == "—" || v == "…";
+            if !blank && only.is_none_or(|o| o == i) {
+                *values.entry((i, v)).or_default() += 1;
+            }
+        }
+    }
+    let mut distinct = vec![0usize; titles.len()];
+    for (i, _) in values.keys() {
+        distinct[*i] += 1;
+    }
+
+    let mut ranked: Vec<(u8, usize, Suggestion)> = values
+        .into_iter()
+        .filter_map(|((i, v), n)| {
+            let rank = if !needle.is_empty() {
+                match_rank(v, needle)?
+            } else if distinct[i] <= LOW_CARDINALITY {
+                0
+            } else {
+                return None;
+            };
+            let chip = Chip::Column {
+                title: titles[i],
+                value: v.to_string(),
+            };
+            (!chosen.contains(&chip)).then_some((rank, n, Suggestion { chip, count: n }))
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(b.1.cmp(&a.1))
+            .then_with(|| a.2.chip.value().cmp(&b.2.chip.value()))
+    });
+    ranked.into_iter().map(|(_, _, s)| s).take(LIMIT).collect()
 }
 
 #[cfg(test)]

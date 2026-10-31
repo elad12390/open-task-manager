@@ -47,6 +47,8 @@ pub struct Listing {
     pub rows: Rc<Vec<ListRow>>,
     /// Rows before the filter.
     pub total: usize,
+    /// Every row's cells before the filter, for the filter's suggestions.
+    pub cells: Vec<Vec<SharedString>>,
 }
 
 impl Default for Listing {
@@ -55,6 +57,7 @@ impl Default for Listing {
             headers: Vec::new(),
             rows: Rc::new(Vec::new()),
             total: 0,
+            cells: Vec::new(),
         }
     }
 }
@@ -97,6 +100,7 @@ impl OtmApp {
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         self.query.clear();
+        self.list_chips.clear();
         self.caret_back = 0;
         self.listing_loading = !self.demo_mode
             && matches!(
@@ -440,12 +444,16 @@ impl OtmApp {
             ),
             _ => (vec![], vec![]),
         };
-        // The filter searches every column; the chosen sort applies on top of each page's order.
+        // The filter searches every column and applies the column chips; the chosen sort applies on
+        // top of each page's order.
         let total = rows.len();
-        let q = self.query.trim().to_lowercase();
+        let cells = rows.iter().map(|r| r.cells.clone()).collect();
+        let titles: Vec<&str> = headers.iter().map(|h| h.title).collect();
         let mut rows: Vec<ListRow> = rows
             .into_iter()
-            .filter(|r| q.is_empty() || r.cells.iter().any(|c| c.to_lowercase().contains(&q)))
+            .filter(|r| {
+                crate::filter::listing_matches(&self.list_chips, &self.query, &titles, &r.cells)
+            })
             .collect();
         crate::tables::sort_items(
             &mut rows,
@@ -456,6 +464,7 @@ impl OtmApp {
             headers,
             rows: Rc::new(rows),
             total,
+            cells,
         };
     }
 
@@ -503,63 +512,6 @@ impl OtmApp {
             )
     }
 
-    fn filter_chip(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
-        let focused = self.filter_focused;
-        div()
-            .id("page-filter")
-            .debug_selector(|| "page-filter".into())
-            .mx_4()
-            .mb_2()
-            .px_3()
-            .h(px(30.))
-            .w(px(280.))
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_1()
-            .overflow_hidden()
-            .rounded_full()
-            .bg(t.glass_strong)
-            .when(focused, |d| d.border_2().border_color(t.accent))
-            .when(!focused, |d| d.border_1().border_color(t.text_faint))
-            .cursor(gpui::CursorStyle::IBeam)
-            .text_sm()
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.focus_filter();
-                    window.focus(&this.focus);
-                    cx.notify();
-                }),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(if focused { t.accent } else { t.text_faint })
-                    .child("⌕"),
-            )
-            .when(!self.query.is_empty() || focused, |d| {
-                d.child(self.query_with_caret(t))
-            })
-            .when(self.query.is_empty(), |d| {
-                d.child(
-                    div()
-                        .truncate()
-                        .text_color(t.text_faint)
-                        .child(match self.page {
-                            Page::Users => "Filter users  ⌘F",
-                            Page::Startup => "Filter startup items  ⌘F",
-                            Page::Services => "Filter services  ⌘F",
-                            Page::Connections => "Filter connections  ⌘F",
-                            Page::Apps => "Filter apps  ⌘F",
-                            Page::Disk => "Filter folders  ⌘F",
-                            _ => "Type to filter  ⌘F",
-                        }),
-                )
-            })
-    }
-
     fn action_button(
         &self,
         t: &Theme,
@@ -599,11 +551,11 @@ impl OtmApp {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .child(self.filter_chip(t, cx))
+                    .child(self.page_filter(t, cx))
                     .child(div().mb_2().text_xs().text_color(t.text_dim).child(
                         if self.listing_loading {
                             "Loading…".to_string()
-                        } else if self.query.trim().is_empty() {
+                        } else if !self.filter_active() {
                             format!("{count} shown")
                         } else {
                             format!("{count} of {} shown", self.listing.total)
@@ -679,7 +631,7 @@ impl OtmApp {
 
     /// What an empty listing says: nothing matches the filter (with a way out), or nothing exists.
     fn listing_empty(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let filtered = !self.query.trim().is_empty();
+        let filtered = self.filter_active();
         let what = match self.page {
             Page::Users => "No users",
             Page::Startup => "No startup items",
@@ -697,16 +649,15 @@ impl OtmApp {
             .flex_col()
             .items_center()
             .gap_2()
-            .child(
-                div()
-                    .text_base()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(if filtered {
-                        format!("Nothing matches “{}”", self.query.trim())
-                    } else {
-                        what.to_string()
-                    }),
-            )
+            .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(
+                if !self.query.trim().is_empty() {
+                    format!("Nothing matches “{}”", self.query.trim())
+                } else if filtered {
+                    "Nothing matches the filter".to_string()
+                } else {
+                    what.to_string()
+                },
+            ))
             .when(filtered, |d| {
                 d.child(
                     ui::pill(t, "listing-clear", "Clear filter", true)
@@ -820,11 +771,17 @@ impl OtmApp {
             .unwrap_or(1)
             .max(1);
         use crate::tables::{SortKey as K, sort_items};
-        let q = self.query.trim().to_lowercase();
         let mut folders: Vec<sysops::FolderSize> = latest
             .iter()
             .flat_map(|s| s.items.iter().cloned())
-            .filter(|f| q.is_empty() || f.path.to_lowercase().contains(&q))
+            .filter(|f| {
+                crate::filter::listing_matches(
+                    &self.list_chips,
+                    &self.query,
+                    &["Folder"],
+                    &[f.path.as_str()],
+                )
+            })
             .collect();
         sort_items(&mut folders, self.table_sort("folders"), |f, c| {
             if c == 0 {
@@ -854,7 +811,7 @@ impl OtmApp {
                 format!("{} saved scans", self.scans.len())
             },
         )
-        .child(self.filter_chip(t, cx))
+        .child(self.page_filter(t, cx))
         .child(
             div()
                 .id("disk-scroll")

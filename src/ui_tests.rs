@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Both tests point OTM_DATA_DIR at their own folder, so they must not overlap.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn center(b: Bounds<Pixels>) -> Point<Pixels> {
     b.center()
@@ -23,7 +23,7 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> 
         .unwrap_or_else(|| panic!("element {selector} was not rendered"))
 }
 
-fn click(cx: &mut VisualTestContext, selector: &'static str) {
+pub(crate) fn click(cx: &mut VisualTestContext, selector: &'static str) {
     let at = center(bounds(cx, selector));
     cx.simulate_click(at, Modifiers::none());
     cx.run_until_parked();

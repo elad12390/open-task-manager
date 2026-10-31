@@ -31,6 +31,7 @@ pub fn kind_color(k: Kind) -> Rgba {
         Kind::State => 0xf5a524,
         Kind::Cpu => 0xff5a5f,
         Kind::Memory => 0x34c759,
+        Kind::Column(_) => 0x5ac8fa,
     })
 }
 
@@ -126,15 +127,52 @@ impl OtmApp {
             .when(!after.is_empty(), |d| d.child(after.to_string()))
     }
 
+    /// The chips of the page being shown: process chips on Processes, listing chips elsewhere.
+    pub fn active_chips(&self) -> &[Chip] {
+        if self.page == Page::Processes {
+            &self.chips
+        } else {
+            &self.list_chips
+        }
+    }
+
+    pub fn active_chips_mut(&mut self) -> &mut Vec<Chip> {
+        if self.page == Page::Processes {
+            &mut self.chips
+        } else {
+            &mut self.list_chips
+        }
+    }
+
     pub fn filter_active(&self) -> bool {
-        !self.query.is_empty() || !self.chips.is_empty()
+        !self.query.is_empty() || !self.active_chips().is_empty()
     }
 
     pub fn suggestions(&self) -> Vec<Suggestion> {
-        if self.page != Page::Processes {
-            return Vec::new();
+        match self.page {
+            Page::Processes => {
+                crate::filter::suggest(&self.query, &self.chips, &self.snapshot.processes)
+            }
+            Page::Disk => {
+                let folders: Vec<Vec<String>> = self
+                    .scans
+                    .first()
+                    .map(|s| s.items.iter().map(|f| vec![f.path.clone()]).collect())
+                    .unwrap_or_default();
+                crate::filter::suggest_rows(&self.query, &self.list_chips, &["Folder"], &folders)
+            }
+            Page::Users | Page::Startup | Page::Services | Page::Connections | Page::Apps => {
+                let titles: Vec<&'static str> =
+                    self.listing.headers.iter().map(|h| h.title).collect();
+                crate::filter::suggest_rows(
+                    &self.query,
+                    &self.list_chips,
+                    &titles,
+                    &self.listing.cells,
+                )
+            }
+            _ => Vec::new(),
         }
-        crate::filter::suggest(&self.query, &self.chips, &self.snapshot.processes)
     }
 
     /// Text is being typed towards a suggestion that is on show, so an empty result is not final.
@@ -157,38 +195,40 @@ impl OtmApp {
     }
 
     pub fn add_chip(&mut self, chip: Chip) {
-        if !self.chips.contains(&chip) {
-            self.chips.push(chip);
+        let chips = self.active_chips_mut();
+        if !chips.contains(&chip) {
+            chips.push(chip);
         }
         self.query.clear();
         self.caret_back = 0;
         self.suggest_ix = 0;
         self.suggest_open = false;
         self.caret_on = true;
-        self.rebuild_rows();
+        self.query_changed();
     }
 
     pub fn remove_chip(&mut self, ix: usize) {
-        if ix < self.chips.len() {
-            self.chips.remove(ix);
-            self.rebuild_rows();
+        if ix < self.active_chips().len() {
+            self.active_chips_mut().remove(ix);
+            self.query_changed();
         }
     }
 
     /// `cpu…` or `mem…` typed without a usable number yet.
     fn typing_threshold(&self) -> bool {
         let q = self.query.trim().to_lowercase();
-        (q.starts_with("cpu") || q.starts_with("mem"))
+        self.page == Page::Processes
+            && (q.starts_with("cpu") || q.starts_with("mem"))
             && q.len() > 3
             && crate::filter::parse_numeric(&q).is_none()
     }
 
     /// Turn chip `ix` back into text in the field, to change it.
     pub fn edit_chip(&mut self, ix: usize) {
-        if ix >= self.chips.len() {
+        if ix >= self.active_chips().len() {
             return;
         }
-        let chip = self.chips.remove(ix);
+        let chip = self.active_chips_mut().remove(ix);
         self.query = match chip {
             Chip::App(v) => format!("app:{v}"),
             Chip::User(v) => format!("user:{v}"),
@@ -197,20 +237,20 @@ impl OtmApp {
             Chip::CpuAbove(x) => format!("cpu>{x}"),
             Chip::MemoryAbove(b) if b % (1 << 30) == 0 => format!("mem>{}g", b >> 30),
             Chip::MemoryAbove(b) => format!("mem>{}", b >> 20),
+            Chip::Column { title, value } => format!("{}:{value}", title.to_lowercase()),
         };
         self.caret_back = 0;
         self.suggest_ix = 0;
         self.focus_filter();
-        self.rebuild_rows();
+        self.query_changed();
     }
 
     pub fn clear_filter(&mut self) {
         self.query.clear();
         self.caret_back = 0;
-        self.chips.clear();
+        self.active_chips_mut().clear();
         self.suggest_ix = 0;
-        self.rebuild_rows();
-        self.rebuild_listing();
+        self.query_changed();
     }
 
     fn chip_view(
@@ -287,6 +327,30 @@ impl OtmApp {
             )
     }
 
+    fn filter_placeholder(&self, focused: bool) -> &'static str {
+        match (self.page, focused) {
+            (Page::Processes, true) => "Name, app, user, category… or cpu>5, mem>1g",
+            (Page::Processes, false) => "Filter processes  ⌘F",
+            (_, true) => "Type to filter, or pick a value",
+            (Page::Users, false) => "Filter users  ⌘F",
+            (Page::Startup, false) => "Filter startup items  ⌘F",
+            (Page::Services, false) => "Filter services  ⌘F",
+            (Page::Connections, false) => "Filter connections  ⌘F",
+            (Page::Apps, false) => "Filter apps  ⌘F",
+            (Page::Disk, false) => "Filter folders  ⌘F",
+            _ => "Type to filter  ⌘F",
+        }
+    }
+
+    /// The filter field above a listing or Disk Space table.
+    pub fn page_filter(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(280.))
+            .mx_4()
+            .mb_2()
+            .child(self.filter_field(t, cx))
+    }
+
     /// The filter field with its chips, caret and (while open) suggestions.
     pub fn filter_field(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.filter_focused;
@@ -295,15 +359,20 @@ impl OtmApp {
         } else {
             Vec::new()
         };
-        let placeholder = self.query.is_empty() && self.chips.is_empty();
+        let placeholder = self.query.is_empty() && self.active_chips().is_empty();
+        let (id, selector) = if self.page == Page::Processes {
+            ("filter-field", "filter-field")
+        } else {
+            ("page-filter", "page-filter")
+        };
         div()
             .relative()
             .flex_1()
             .min_w(px(240.))
             .child(
                 div()
-                    .id("filter-field")
-                    .debug_selector(|| "filter-field".into())
+                    .id(id)
+                    .debug_selector(move || selector.into())
                     .w_full()
                     .h(px(32.))
                     .px_2()
@@ -340,7 +409,7 @@ impl OtmApp {
                             .child("⌕"),
                     )
                     .children(
-                        self.chips
+                        self.active_chips()
                             .iter()
                             .enumerate()
                             .map(|(i, c)| self.chip_view(t, i, c, cx)),
@@ -356,13 +425,13 @@ impl OtmApp {
                                 d.child(self.query_with_caret(t))
                             })
                             .when(placeholder, |d| {
-                                d.child(div().pl_1().truncate().text_color(t.text_faint).child(
-                                    if focused {
-                                        "Name, app, user, category… or cpu>5, mem>1g"
-                                    } else {
-                                        "Filter processes  ⌘F"
-                                    },
-                                ))
+                                d.child(
+                                    div()
+                                        .pl_1()
+                                        .truncate()
+                                        .text_color(t.text_faint)
+                                        .child(self.filter_placeholder(focused)),
+                                )
                             }),
                     )
                     .when(self.filter_active(), |d| {
@@ -519,11 +588,7 @@ impl OtmApp {
                             .flex_shrink_0()
                             .text_xs()
                             .text_color(t.text_dim)
-                            .child(format!(
-                                "{} process{}",
-                                s.count,
-                                if s.count == 1 { "" } else { "es" }
-                            )),
+                            .child(s.count_label()),
                     )
             }))
             .child(
@@ -540,9 +605,10 @@ impl OtmApp {
                     .text_color(t.text_faint)
                     .child("↑↓ choose")
                     .child("⏎ add")
-                    .when(self.query.is_empty() && !self.chips.is_empty(), |d| {
-                        d.child("⌫ remove last")
-                    })
+                    .when(
+                        self.query.is_empty() && !self.active_chips().is_empty(),
+                        |d| d.child("⌫ remove last"),
+                    )
                     .child("esc close"),
             )
             .into_any_element()

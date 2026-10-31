@@ -124,6 +124,8 @@ pub struct OtmApp {
     pub query: String,
     /// Process filter chips (app, user, category, state, CPU, memory) that apply with `query`.
     pub chips: Vec<crate::filter::Chip>,
+    /// Column-value chips of the listing pages and Disk Space; cleared when the page changes.
+    pub list_chips: Vec<crate::filter::Chip>,
     /// The filter field has focus: it shows a caret and, while `suggest_open`, its suggestions.
     pub filter_focused: bool,
     pub suggest_open: bool,
@@ -298,6 +300,7 @@ impl OtmApp {
             page: Page::Processes,
             query: String::new(),
             chips: Vec::new(),
+            list_chips: Vec::new(),
             filter_focused: false,
             suggest_open: false,
             suggest_ix: 0,
@@ -386,7 +389,7 @@ impl OtmApp {
         cx.notify();
     }
 
-    fn query_changed(&mut self) {
+    pub fn query_changed(&mut self) {
         if self.page == Page::Processes {
             self.rebuild_rows();
         } else {
@@ -405,7 +408,7 @@ impl OtmApp {
             return;
         }
         // The suggestions panel takes ↑↓, ⏎/⇥ and Esc while it is open.
-        if self.page == Page::Processes
+        if self.page.filterable()
             && self.filter_focused
             && self.suggest_open
             && !k.modifiers.platform
@@ -464,7 +467,7 @@ impl OtmApp {
                     self.caret_back = 0;
                     true
                 }
-                ("down", false) if self.page == Page::Processes && !self.suggest_open => {
+                ("down", false) if self.page.filterable() && !self.suggest_open => {
                     self.suggest_open = true;
                     true
                 }
@@ -521,7 +524,7 @@ impl OtmApp {
                 if self.filter_active() {
                     self.query.clear();
                     self.caret_back = 0;
-                    self.chips.clear();
+                    self.active_chips_mut().clear();
                 } else {
                     self.blur_filter();
                 }
@@ -529,7 +532,7 @@ impl OtmApp {
                 self.confirm_trash = None;
             }
             "backspace" if self.query.is_empty() => {
-                if self.chips.pop().is_none() {
+                if self.active_chips_mut().pop().is_none() {
                     return;
                 }
             }
