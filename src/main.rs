@@ -19,6 +19,8 @@ mod metrics;
 #[cfg(test)]
 mod multiselect_tests;
 mod overview;
+#[cfg(test)]
+mod page_scroll_tests;
 mod pages;
 mod processes;
 mod recorder;

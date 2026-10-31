@@ -1,8 +1,9 @@
-use gpui::{Div, FontWeight, div, prelude::*, px};
+use gpui::{Context, Div, FontWeight, div, prelude::*, px};
 
 use crate::{
     app::OtmApp,
     metrics::{HISTORY, fmt_bytes, fmt_duration},
+    scrollbar,
     theme::Theme,
     ui,
 };
@@ -32,7 +33,7 @@ fn card(t: &Theme, title: &'static str, value: String, detail: String) -> Div {
 }
 
 impl OtmApp {
-    pub fn render_overview(&self, t: &Theme) -> impl IntoElement {
+    pub fn render_overview(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let s = &self.snapshot;
         let h = &self.history;
         let mem_pct = if s.memory_total == 0 {
@@ -59,207 +60,211 @@ impl OtmApp {
             (boot_disk.total - boot_disk.available) as f32 / boot_disk.total as f32 * 100.
         };
 
-        ui::glass(t)
-            .id("overview")
-            .size_full()
-            .p_4()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .overflow_y_scroll()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Overview"),
-                    )
-                    .child(div().text_xs().text_color(t.text_dim).child(format!(
-                        "{} · {} · up {}",
-                        s.os,
-                        s.cpu_brand,
-                        fmt_duration(s.uptime)
-                    ))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .gap_3()
-                    .child(
-                        card(
-                            t,
-                            "CPU",
-                            crate::metrics::fmt_pct(s.cpu),
-                            format!("{} cores", s.cores.len()),
-                        )
-                        .child(ui::sparkline(
-                            h.cpu.iter().copied(),
-                            100.,
-                            54.,
-                            t.load_color(s.cpu),
-                            HISTORY,
-                        )),
-                    )
-                    .child(
-                        card(
-                            t,
-                            "MEMORY",
-                            crate::metrics::fmt_pct(mem_pct),
-                            format!(
-                                "{} of {} · swap {}",
-                                fmt_bytes(s.memory_used),
-                                fmt_bytes(s.memory_total),
-                                fmt_bytes(s.swap_used)
-                            ),
-                        )
-                        .child(ui::sparkline(
-                            h.memory.iter().copied(),
-                            100.,
-                            54.,
-                            t.load_color(mem_pct),
-                            HISTORY,
-                        )),
-                    )
-                    .child(
-                        card(
-                            t,
-                            "NETWORK",
-                            format!("↓ {}/s", fmt_bytes(s.net_down)),
-                            format!("↑ {}/s", fmt_bytes(s.net_up)),
-                        )
-                        .child(ui::sparkline(
-                            h.net_down.iter().copied(),
-                            net_max,
-                            26.,
-                            t.accent.into(),
-                            HISTORY,
-                        ))
-                        .child(ui::sparkline(
-                            h.net_up.iter().copied(),
-                            net_max,
-                            26.,
-                            t.good.into(),
-                            HISTORY,
-                        )),
-                    )
-                    .child(
-                        card(
-                            t,
-                            "DISK",
-                            crate::metrics::fmt_pct(disk_pct),
-                            format!(
-                                "{} free of {}",
-                                crate::metrics::fmt_size(boot_disk.available),
-                                crate::metrics::fmt_size(boot_disk.total)
-                            ),
-                        )
-                        .child(ui::meter(
-                            t,
-                            disk_pct,
-                            t.load_color(disk_pct),
-                        )),
-                    ),
-            )
-            .child({
-                let i = &self.system;
-                let fact = |k: &'static str, v: String| {
+        ui::glass(t).size_full().child(scrollbar::scroll_area(
+            t,
+            "overview",
+            "overview-vbar",
+            &self.overview_scroll,
+            div()
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(
                     div()
-                        .w(px(300.))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_xl()
+                                .font_weight(FontWeight::BOLD)
+                                .child("Overview"),
+                        )
+                        .child(div().text_xs().text_color(t.text_dim).child(format!(
+                            "{} · {} · up {}",
+                            s.os,
+                            s.cpu_brand,
+                            fmt_duration(s.uptime)
+                        ))),
+                )
+                .child(
+                    div()
                         .flex()
                         .flex_row()
-                        .text_sm()
-                        .child(div().w(px(130.)).text_color(t.text_dim).child(k))
-                        .child(div().min_w_0().truncate().child(v))
-                };
-                let booted = crate::sysops::now_secs().saturating_sub(i.booted);
-                div()
-                    .p_4()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .rounded(px(18.))
-                    .bg(t.glass_strong)
-                    .border_1()
-                    .border_color(t.highlight)
-                    .child(
+                        .flex_wrap()
+                        .gap_3()
+                        .child(
+                            card(
+                                t,
+                                "CPU",
+                                crate::metrics::fmt_pct(s.cpu),
+                                format!("{} cores", s.cores.len()),
+                            )
+                            .child(ui::sparkline(
+                                h.cpu.iter().copied(),
+                                100.,
+                                54.,
+                                t.load_color(s.cpu),
+                                HISTORY,
+                            )),
+                        )
+                        .child(
+                            card(
+                                t,
+                                "MEMORY",
+                                crate::metrics::fmt_pct(mem_pct),
+                                format!(
+                                    "{} of {} · swap {}",
+                                    fmt_bytes(s.memory_used),
+                                    fmt_bytes(s.memory_total),
+                                    fmt_bytes(s.swap_used)
+                                ),
+                            )
+                            .child(ui::sparkline(
+                                h.memory.iter().copied(),
+                                100.,
+                                54.,
+                                t.load_color(mem_pct),
+                                HISTORY,
+                            )),
+                        )
+                        .child(
+                            card(
+                                t,
+                                "NETWORK",
+                                format!("↓ {}/s", fmt_bytes(s.net_down)),
+                                format!("↑ {}/s", fmt_bytes(s.net_up)),
+                            )
+                            .child(ui::sparkline(
+                                h.net_down.iter().copied(),
+                                net_max,
+                                26.,
+                                t.accent.into(),
+                                HISTORY,
+                            ))
+                            .child(ui::sparkline(
+                                h.net_up.iter().copied(),
+                                net_max,
+                                26.,
+                                t.good.into(),
+                                HISTORY,
+                            )),
+                        )
+                        .child(
+                            card(
+                                t,
+                                "DISK",
+                                crate::metrics::fmt_pct(disk_pct),
+                                format!(
+                                    "{} free of {}",
+                                    crate::metrics::fmt_size(boot_disk.available),
+                                    crate::metrics::fmt_size(boot_disk.total)
+                                ),
+                            )
+                            .child(ui::meter(
+                                t,
+                                disk_pct,
+                                t.load_color(disk_pct),
+                            )),
+                        ),
+                )
+                .child({
+                    let i = &self.system;
+                    let fact = |k: &'static str, v: String| {
                         div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.text_dim)
-                            .child("SYSTEM INFO"),
-                    )
-                    .child(
-                        div()
+                            .w(px(300.))
                             .flex()
                             .flex_row()
-                            .flex_wrap()
-                            .gap_x_6()
-                            .gap_y_1()
-                            .child(fact("Model", i.model.clone()))
-                            .child(fact("Chip", i.chip.clone()))
-                            .child(fact("macOS", format!("{} ({})", i.os, i.build)))
-                            .child(fact("Architecture", i.arch.clone()))
-                            .child(fact("Memory", fmt_bytes(i.memory)))
-                            .child(fact(
-                                "Cores",
-                                format!(
-                                    "{} ({} performance, {} efficiency)",
-                                    i.physical_cores, i.performance_cores, i.efficiency_cores
-                                ),
-                            ))
-                            .child(fact("Host", s.host.clone()))
-                            .child(fact(
-                                "Booted",
-                                if i.booted == 0 {
-                                    "—".into()
-                                } else {
-                                    format!("{} ago", fmt_duration(booted))
-                                },
-                            )),
-                    )
-            })
-            .child(
-                div()
-                    .p_4()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .rounded(px(18.))
-                    .bg(t.glass_strong)
-                    .border_1()
-                    .border_color(t.highlight)
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.text_dim)
-                            .child("PER-CORE LOAD"),
-                    )
-                    .child(div().flex().flex_row().flex_wrap().gap_3().children(
-                        s.cores.iter().enumerate().map(|(i, &pct)| {
+                            .text_sm()
+                            .child(div().w(px(130.)).text_color(t.text_dim).child(k))
+                            .child(div().min_w_0().truncate().child(v))
+                    };
+                    let booted = crate::sysops::now_secs().saturating_sub(i.booted);
+                    div()
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .rounded(px(18.))
+                        .bg(t.glass_strong)
+                        .border_1()
+                        .border_color(t.highlight)
+                        .child(
                             div()
-                                .w(px(120.))
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_dim)
+                                .child("SYSTEM INFO"),
+                        )
+                        .child(
+                            div()
                                 .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .justify_between()
-                                        .text_xs()
-                                        .text_color(t.text_dim)
-                                        .child(format!("Core {}", i + 1))
-                                        .child(crate::metrics::fmt_pct(pct)),
-                                )
-                                .child(ui::meter(t, pct, t.load_color(pct)))
-                        }),
-                    )),
-            )
+                                .flex_row()
+                                .flex_wrap()
+                                .gap_x_6()
+                                .gap_y_1()
+                                .child(fact("Model", i.model.clone()))
+                                .child(fact("Chip", i.chip.clone()))
+                                .child(fact("macOS", format!("{} ({})", i.os, i.build)))
+                                .child(fact("Architecture", i.arch.clone()))
+                                .child(fact("Memory", fmt_bytes(i.memory)))
+                                .child(fact(
+                                    "Cores",
+                                    format!(
+                                        "{} ({} performance, {} efficiency)",
+                                        i.physical_cores, i.performance_cores, i.efficiency_cores
+                                    ),
+                                ))
+                                .child(fact("Host", s.host.clone()))
+                                .child(fact(
+                                    "Booted",
+                                    if i.booted == 0 {
+                                        "—".into()
+                                    } else {
+                                        format!("{} ago", fmt_duration(booted))
+                                    },
+                                )),
+                        )
+                })
+                .child(
+                    div()
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .rounded(px(18.))
+                        .bg(t.glass_strong)
+                        .border_1()
+                        .border_color(t.highlight)
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_dim)
+                                .child("PER-CORE LOAD"),
+                        )
+                        .child(div().flex().flex_row().flex_wrap().gap_3().children(
+                            s.cores.iter().enumerate().map(|(i, &pct)| {
+                                div()
+                                    .w(px(120.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .justify_between()
+                                            .text_xs()
+                                            .text_color(t.text_dim)
+                                            .child(format!("Core {}", i + 1))
+                                            .child(crate::metrics::fmt_pct(pct)),
+                                    )
+                                    .child(ui::meter(t, pct, t.load_color(pct)))
+                            }),
+                        )),
+                ),
+            cx,
+        ))
     }
 }
