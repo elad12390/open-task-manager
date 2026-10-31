@@ -1,0 +1,1271 @@
+use std::{ops::Range, path::PathBuf, rc::Rc};
+
+use gpui::{
+    AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px, uniform_list,
+};
+
+use crate::{
+    app::{OtmApp, Page},
+    metrics::{fmt_bytes, fmt_duration},
+    recorder,
+    settings::{Appearance, GLASS_SKIN, Glass, skins},
+    sysops::{self, ServiceAction},
+    theme::Theme,
+    ui,
+};
+
+#[derive(Clone, Debug)]
+pub enum Action {
+    Load(PathBuf),
+    Unload(PathBuf),
+    Restart(String),
+    Stop(String),
+    AskTrash(PathBuf),
+    Trash(PathBuf),
+    CancelTrash,
+    Reveal(String),
+    Signal(u32, bool),
+}
+
+pub struct ActionButton {
+    pub label: &'static str,
+    pub action: Action,
+    pub danger: bool,
+}
+
+pub struct ListRow {
+    pub cells: Vec<SharedString>,
+    pub dim: bool,
+    pub actions: Vec<ActionButton>,
+}
+
+pub struct Listing {
+    pub headers: Vec<(&'static str, f32)>,
+    pub rows: Rc<Vec<ListRow>>,
+}
+
+impl Default for Listing {
+    fn default() -> Self {
+        Self {
+            headers: Vec::new(),
+            rows: Rc::new(Vec::new()),
+        }
+    }
+}
+
+fn btn(label: &'static str, action: Action) -> ActionButton {
+    ActionButton {
+        label,
+        action,
+        danger: false,
+    }
+}
+
+fn danger(label: &'static str, action: Action) -> ActionButton {
+    ActionButton {
+        label,
+        action,
+        danger: true,
+    }
+}
+
+impl OtmApp {
+    /// Run `work` off the main thread, then apply its result on the UI thread.
+    pub fn run_bg<R: Send + 'static>(
+        &mut self,
+        cx: &mut Context<Self>,
+        work: impl FnOnce() -> R + Send + 'static,
+        done: impl FnOnce(&mut Self, R, &mut Context<Self>) + 'static,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let r = cx.background_executor().spawn(async move { work() }).await;
+            this.update(cx, |app, cx| {
+                done(app, r, cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.page = page;
+        self.listing = Listing::default();
+        self.query.clear();
+        self.column_menu = false;
+        self.confirm_trash = None;
+        self.load_page(cx);
+    }
+
+    pub fn load_page(&mut self, cx: &mut Context<Self>) {
+        match self.page {
+            Page::Startup => self.run_bg(cx, sysops::startup_items, |app, v, _| {
+                app.startup = v;
+                app.rebuild_listing();
+            }),
+            Page::Services => self.run_bg(cx, sysops::services, |app, v, _| {
+                app.services = v;
+                app.rebuild_listing();
+            }),
+            Page::Connections => self.run_bg(cx, sysops::connections, |app, v, _| {
+                app.connections = v;
+                app.rebuild_listing();
+            }),
+            Page::Apps => {
+                self.run_bg(cx, sysops::installed_apps, |app, v, cx| {
+                    let paths: Vec<PathBuf> = v.iter().map(|a| a.path.clone()).collect();
+                    app.apps = v;
+                    app.rebuild_listing();
+                    app.run_bg(
+                        cx,
+                        move || sysops::app_sizes(&paths),
+                        |app, sizes, _| {
+                            for (a, s) in app.apps.iter_mut().zip(sizes) {
+                                a.bytes = s;
+                            }
+                            app.rebuild_listing();
+                        },
+                    );
+                });
+            }
+            Page::Power => self.run_bg(cx, sysops::power, |app, v, _| app.power = Some(v)),
+            Page::Disk => {
+                if self.scans.is_empty() {
+                    self.scans = sysops::load_scans();
+                }
+            }
+            Page::Recorder => self.recordings = recorder::list(),
+            _ => {}
+        }
+    }
+
+    pub fn perform(&mut self, action: Action, cx: &mut Context<Self>) {
+        match action {
+            Action::AskTrash(p) => {
+                self.confirm_trash = Some(p);
+                self.rebuild_listing();
+                cx.notify();
+                return;
+            }
+            Action::CancelTrash => {
+                self.confirm_trash = None;
+                self.rebuild_listing();
+                cx.notify();
+                return;
+            }
+            Action::Reveal(p) => {
+                sysops::reveal_in_finder(&p);
+                return;
+            }
+            _ => {}
+        }
+        self.confirm_trash = None;
+        let describe = match &action {
+            Action::Load(p) => format!(
+                "Loaded {}",
+                p.file_stem().unwrap_or_default().to_string_lossy()
+            ),
+            Action::Unload(p) => format!(
+                "Unloaded {}",
+                p.file_stem().unwrap_or_default().to_string_lossy()
+            ),
+            Action::Restart(l) => format!("Restarted {l}"),
+            Action::Stop(l) => format!("Stopped {l}"),
+            Action::Trash(p) => format!(
+                "Moved {} to the Trash",
+                p.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            Action::Signal(pid, force) => format!(
+                "{} process {pid}",
+                if *force { "Force quit" } else { "Quit" }
+            ),
+            _ => String::new(),
+        };
+        self.run_bg(
+            cx,
+            move || match action {
+                Action::Load(p) => sysops::toggle_startup(&p, true),
+                Action::Unload(p) => sysops::toggle_startup(&p, false),
+                Action::Restart(l) => sysops::control_service(&l, ServiceAction::Restart),
+                Action::Stop(l) => sysops::control_service(&l, ServiceAction::Stop),
+                Action::Trash(p) => sysops::trash_app(&p),
+                Action::Signal(pid, force) => sysops::signal_process(pid, force),
+                _ => Ok(()),
+            },
+            move |app, result, cx| {
+                app.notice = Some(match result {
+                    Ok(()) => (describe, false),
+                    Err(e) => (e, true),
+                });
+                if app.page == Page::Processes {
+                    app.selected = None;
+                } else {
+                    app.load_page(cx);
+                }
+            },
+        );
+    }
+
+    fn matches(&self, fields: &[&str]) -> bool {
+        let q = self.query.to_lowercase();
+        q.is_empty() || fields.iter().any(|f| f.to_lowercase().contains(&q))
+    }
+
+    pub fn rebuild_listing(&mut self) {
+        let row = |cells: Vec<String>, dim: bool, actions: Vec<ActionButton>| ListRow {
+            cells: cells.into_iter().map(SharedString::from).collect(),
+            dim,
+            actions,
+        };
+        let (headers, rows): (Vec<(&'static str, f32)>, Vec<ListRow>) = match self.page {
+            Page::Startup => (
+                vec![
+                    ("Label", 380.),
+                    ("Scope", 120.),
+                    ("State", 90.),
+                    ("File", 420.),
+                ],
+                self.startup
+                    .iter()
+                    .filter(|s| self.matches(&[&s.label, s.scope]))
+                    .map(|s| {
+                        let actions = if !s.editable {
+                            vec![]
+                        } else if s.loaded {
+                            vec![btn("Disable", Action::Unload(s.file.clone()))]
+                        } else {
+                            vec![btn("Enable", Action::Load(s.file.clone()))]
+                        };
+                        row(
+                            vec![
+                                s.label.clone(),
+                                s.scope.into(),
+                                if s.loaded {
+                                    "Loaded".into()
+                                } else {
+                                    "Not loaded".into()
+                                },
+                                s.file.display().to_string(),
+                            ],
+                            !s.loaded,
+                            actions,
+                        )
+                    })
+                    .collect(),
+            ),
+            Page::Services => (
+                vec![
+                    ("Label", 460.),
+                    ("PID", 90.),
+                    ("Last exit", 90.),
+                    ("State", 100.),
+                ],
+                self.services
+                    .iter()
+                    .filter(|s| self.matches(&[&s.label]))
+                    .map(|s| {
+                        let mut actions = vec![btn("Restart", Action::Restart(s.label.clone()))];
+                        if s.pid.is_some() {
+                            actions.push(danger("Stop", Action::Stop(s.label.clone())));
+                        }
+                        row(
+                            vec![
+                                s.label.clone(),
+                                s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
+                                s.status.to_string(),
+                                if s.pid.is_some() {
+                                    "Running".into()
+                                } else {
+                                    "Idle".into()
+                                },
+                            ],
+                            s.pid.is_none(),
+                            actions,
+                        )
+                    })
+                    .collect(),
+            ),
+            Page::Connections => (
+                vec![
+                    ("Process", 200.),
+                    ("PID", 80.),
+                    ("Protocol", 80.),
+                    ("Endpoint", 460.),
+                    ("State", 120.),
+                ],
+                self.connections
+                    .iter()
+                    .filter(|c| self.matches(&[&c.process, &c.endpoint, &c.state]))
+                    .map(|c| {
+                        row(
+                            vec![
+                                c.process.clone(),
+                                c.pid.to_string(),
+                                c.proto.clone(),
+                                c.endpoint.clone(),
+                                c.state.clone(),
+                            ],
+                            c.state.is_empty(),
+                            vec![],
+                        )
+                    })
+                    .collect(),
+            ),
+            Page::Apps => (
+                vec![
+                    ("Name", 280.),
+                    ("Version", 120.),
+                    ("Size", 100.),
+                    ("Location", 360.),
+                ],
+                self.apps
+                    .iter()
+                    .filter(|a| self.matches(&[&a.name]))
+                    .map(|a| {
+                        let path = a.path.display().to_string();
+                        let actions = if self.confirm_trash.as_ref() == Some(&a.path) {
+                            vec![
+                                danger("Confirm move to Trash", Action::Trash(a.path.clone())),
+                                btn("Cancel", Action::CancelTrash),
+                            ]
+                        } else {
+                            vec![
+                                btn("Reveal", Action::Reveal(path.clone())),
+                                danger("Uninstall", Action::AskTrash(a.path.clone())),
+                            ]
+                        };
+                        row(
+                            vec![
+                                a.name.clone(),
+                                a.version.clone(),
+                                a.bytes.map(fmt_bytes).unwrap_or_else(|| "…".into()),
+                                path,
+                            ],
+                            false,
+                            actions,
+                        )
+                    })
+                    .collect(),
+            ),
+            _ => (vec![], vec![]),
+        };
+        self.listing = Listing {
+            headers,
+            rows: Rc::new(rows),
+        };
+    }
+
+    fn page_frame(&self, t: &Theme, title: &'static str, subtitle: String) -> Div {
+        ui::glass(t)
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .child(
+                div()
+                    .px_4()
+                    .pt_4()
+                    .pb_3()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_xl().font_weight(FontWeight::BOLD).child(title))
+                            .child(div().text_xs().text_color(t.text_dim).child(subtitle)),
+                    )
+                    .child(div().flex_1())
+                    .when_some(self.notice.clone(), |d, (msg, err)| {
+                        d.child(
+                            div()
+                                .px_3()
+                                .py_1()
+                                .rounded_full()
+                                .text_xs()
+                                .bg(if err { t.hot } else { t.good })
+                                .text_color(gpui::white())
+                                .child(msg),
+                        )
+                    }),
+            )
+    }
+
+    fn filter_chip(&self, t: &Theme) -> Div {
+        div()
+            .mx_4()
+            .mb_2()
+            .px_3()
+            .py(px(5.))
+            .w(px(260.))
+            .rounded_full()
+            .bg(t.glass_strong)
+            .border_1()
+            .border_color(t.stroke)
+            .text_xs()
+            .child(if self.query.is_empty() {
+                div().text_color(t.text_faint).child("⌕  Type to filter")
+            } else {
+                div()
+                    .text_color(t.text)
+                    .child(format!("⌕  {}▏", self.query))
+            })
+    }
+
+    fn action_button(
+        &self,
+        t: &Theme,
+        id: (SharedString, usize),
+        b: &ActionButton,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let action = b.action.clone();
+        div()
+            .id(id)
+            .px_2()
+            .py(px(2.))
+            .rounded_full()
+            .text_xs()
+            .cursor_pointer()
+            .border_1()
+            .when(b.danger, |d| d.border_color(t.hot).text_color(t.hot))
+            .when(!b.danger, |d| d.border_color(t.accent).text_color(t.accent))
+            .hover(|h| h.bg(t.glass_hover))
+            .child(b.label)
+            .on_click(cx.listener(move |this, _, _, cx| this.perform(action.clone(), cx)))
+    }
+
+    pub fn render_listing(
+        &mut self,
+        t: &Theme,
+        title: &'static str,
+        subtitle: String,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = *t;
+        let count = self.listing.rows.len();
+        let has_actions = self.listing.rows.iter().any(|r| !r.actions.is_empty());
+        self.page_frame(t, title, subtitle)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .child(self.filter_chip(t))
+                    .child(div().mb_2().text_xs().text_color(t.text_dim).child(
+                        if self.listing.headers.is_empty() {
+                            "Loading…".to_string()
+                        } else {
+                            format!("{count} shown")
+                        },
+                    ))
+                    .child(div().flex_1())
+                    .child(
+                        div().mb_2().mr_4().child(
+                            ui::pill(t, "refresh", "↻ Refresh", false)
+                                .on_click(cx.listener(|this, _, _, cx| this.load_page(cx))),
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .h(px(28.))
+                    .items_center()
+                    .px_3()
+                    .border_b_1()
+                    .border_color(t.stroke)
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.text_dim)
+                    .children(
+                        self.listing.headers.iter().enumerate().map(|(i, (h, w))| {
+                            cell(i + 1 == self.listing.headers.len(), *w).child(*h)
+                        }),
+                    )
+                    .when(has_actions, |d| {
+                        d.child(
+                            div()
+                                .flex_shrink_0()
+                                .w(px(ACTIONS_W))
+                                .px_2()
+                                .child("Actions"),
+                        )
+                    }),
+            )
+            .child(
+                uniform_list(
+                    "listing",
+                    count,
+                    cx.processor(move |this, range: Range<usize>, _, cx| {
+                        let rows = this.listing.rows.clone();
+                        let widths: Vec<f32> = this.listing.headers.iter().map(|h| h.1).collect();
+                        range
+                            .filter_map(|ix| {
+                                let r = rows.get(ix)?;
+                                Some(this.render_list_row(&theme, ix, r, &widths, cx))
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+                )
+                .flex_1()
+                .py_1(),
+            )
+    }
+
+    fn render_list_row(
+        &self,
+        t: &Theme,
+        ix: usize,
+        r: &ListRow,
+        widths: &[f32],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id(("list-row", ix))
+            .w_full()
+            .h(px(30.))
+            .mx_2()
+            .px_1()
+            .flex()
+            .flex_row()
+            .items_center()
+            .rounded(px(8.))
+            .text_sm()
+            .when(ix % 2 == 1, |d| d.bg(t.row_alt))
+            .hover(|h| h.bg(t.glass_hover))
+            .when(r.dim, |d| d.text_color(t.text_dim))
+            .children(r.cells.iter().zip(widths).enumerate().map(|(i, (c, w))| {
+                cell(i + 1 == widths.len(), *w)
+                    .truncate()
+                    .when(i > 0, |d| d.text_color(t.text_dim))
+                    .child(c.clone())
+            }))
+            .when(
+                self.listing.rows.iter().any(|r| !r.actions.is_empty()),
+                |d| {
+                    d.child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(ACTIONS_W))
+                            .flex()
+                            .flex_row()
+                            .gap_1()
+                            .px_2()
+                            .children(r.actions.iter().enumerate().map(|(i, b)| {
+                                self.action_button(
+                                    t,
+                                    (SharedString::from(format!("act-{ix}")), i),
+                                    b,
+                                    cx,
+                                )
+                            })),
+                    )
+                },
+            )
+            .into_any_element()
+    }
+
+    pub fn render_disk(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let disks = self.snapshot.disks.clone();
+        let latest = self.scans.first().cloned();
+        let max = latest
+            .as_ref()
+            .and_then(|s| s.items.first())
+            .map(|i| i.bytes)
+            .unwrap_or(1)
+            .max(1);
+        self.page_frame(
+            t,
+            "Disk Space",
+            if self.scanning {
+                "Scanning your home folder (up to 5 minutes)…".into()
+            } else {
+                format!("{} saved scans", self.scans.len())
+            },
+        )
+        .child(
+            div()
+                .id("disk-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .px_4()
+                .pb_4()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_3()
+                        .children(disks.iter().map(|d| {
+                            let used = d.total.saturating_sub(d.available);
+                            let pct = if d.total == 0 {
+                                0.
+                            } else {
+                                used as f32 / d.total as f32 * 100.
+                            };
+                            card(t)
+                                .w(px(260.))
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(d.mount.clone()),
+                                )
+                                .child(div().text_xs().text_color(t.text_dim).child(format!(
+                                    "{} used of {} · {} free",
+                                    fmt_bytes(used),
+                                    fmt_bytes(d.total),
+                                    fmt_bytes(d.available)
+                                )))
+                                .child(ui::meter(t, pct, t.load_color(pct)))
+                        })),
+                )
+                .child(
+                    card(t)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("Largest folders in your home"),
+                                )
+                                .child(
+                                    ui::pill(
+                                        t,
+                                        "scan",
+                                        if self.scanning {
+                                            "Scanning…"
+                                        } else {
+                                            "Scan now"
+                                        },
+                                        self.scanning,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            if this.scanning {
+                                                return;
+                                            }
+                                            this.scanning = true;
+                                            this.run_bg(cx, sysops::scan_home, |app, scans, _| {
+                                                app.scanning = false;
+                                                app.scans = scans;
+                                            });
+                                        },
+                                    )),
+                                ),
+                        )
+                        .when(latest.is_none(), |d| {
+                            d.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(t.text_dim)
+                                    .child("No scan yet. Press Scan now."),
+                            )
+                        })
+                        .children(
+                            latest
+                                .iter()
+                                .flat_map(|s| s.items.iter().cloned())
+                                .enumerate()
+                                .map(|(i, item)| {
+                                    let path = item.path.clone();
+                                    div()
+                                        .id(("folder", i))
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap_3()
+                                        .py_1()
+                                        .cursor_pointer()
+                                        .hover(|h| h.bg(t.glass_hover))
+                                        .rounded(px(6.))
+                                        .child(
+                                            div()
+                                                .w(px(340.))
+                                                .truncate()
+                                                .text_sm()
+                                                .child(item.path.clone()),
+                                        )
+                                        .child(div().flex_1().child(ui::meter(
+                                            t,
+                                            item.bytes as f32 / max as f32 * 100.,
+                                            t.accent.into(),
+                                        )))
+                                        .child(
+                                            div()
+                                                .w(px(90.))
+                                                .text_sm()
+                                                .text_right()
+                                                .child(fmt_bytes(item.bytes)),
+                                        )
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.perform(Action::Reveal(path.clone()), cx)
+                                        }))
+                                }),
+                        ),
+                )
+                .child(
+                    card(t)
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Scan history"),
+                        )
+                        .children(self.scans.iter().map(|s| {
+                            let total: u64 = s.items.iter().map(|i| i.bytes).sum();
+                            let ago = sysops::now_secs().saturating_sub(s.at);
+                            div()
+                                .flex()
+                                .flex_row()
+                                .text_sm()
+                                .child(
+                                    div()
+                                        .w(px(160.))
+                                        .child(format!("{} ago", fmt_duration(ago))),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(140.))
+                                        .text_color(t.text_dim)
+                                        .child(format!("{} folders", s.items.len())),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(t.text_dim)
+                                        .child(format!("{} counted", fmt_bytes(total))),
+                                )
+                        })),
+                ),
+        )
+    }
+
+    pub fn render_power(&self, t: &Theme) -> impl IntoElement {
+        let p = self.power.clone().unwrap_or_default();
+        let row = |k: &'static str, v: String| {
+            div()
+                .flex()
+                .flex_row()
+                .py_1()
+                .text_sm()
+                .child(div().w(px(200.)).text_color(t.text_dim).child(k))
+                .child(div().child(v))
+        };
+        let opt = |v: Option<String>| v.unwrap_or_else(|| "—".into());
+        self.page_frame(
+            t,
+            "Power & Thermal",
+            "Battery, charger and thermal state from pmset and ioreg".into(),
+        )
+        .child(
+            div()
+                .px_4()
+                .pb_4()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_3()
+                .child(
+                    card(t)
+                        .w(px(360.))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_dim)
+                                .child("BATTERY"),
+                        )
+                        .child(
+                            div()
+                                .text_2xl()
+                                .font_weight(FontWeight::BOLD)
+                                .child(opt(p.percent.map(|x| format!("{x}%")))),
+                        )
+                        .child(ui::meter(t, p.percent.unwrap_or(0) as f32, t.good.into()))
+                        .child(row("Power source", p.source.clone()))
+                        .child(row("Status", p.status.clone()))
+                        .child(row("Draw", opt(p.watts.map(|w| format!("{w:.1} W")))))
+                        .child(row("Voltage", opt(p.voltage.map(|v| format!("{v:.2} V"))))),
+                )
+                .child(
+                    card(t)
+                        .w(px(360.))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_dim)
+                                .child("HEALTH & THERMAL"),
+                        )
+                        .child(row(
+                            "Battery health",
+                            opt(p.health.map(|h| format!("{h:.0}%"))),
+                        ))
+                        .child(row("Cycle count", opt(p.cycles.map(|c| c.to_string()))))
+                        .child(row(
+                            "Battery temperature",
+                            opt(p.temperature.map(|c| format!("{c:.1} °C"))),
+                        ))
+                        .child(row("Thermal state", p.thermal.clone()))
+                        .child(row(
+                            "Low Power Mode",
+                            if p.low_power_mode {
+                                "On".into()
+                            } else {
+                                "Off".into()
+                            },
+                        ))
+                        .child(row("CPU frequency", "Needs root (powermetrics)".into())),
+                ),
+        )
+    }
+
+    pub fn render_bench(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let b = self.bench.clone();
+        let metric = |label: &'static str, value: String, note: &'static str| {
+            card(t)
+                .w(px(250.))
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.text_dim)
+                        .child(label),
+                )
+                .child(div().text_2xl().font_weight(FontWeight::BOLD).child(value))
+                .child(div().text_xs().text_color(t.text_dim).child(note))
+        };
+        let v = |f: fn(&sysops::BenchResult) -> f64, unit: &str| {
+            b.as_ref()
+                .map(|r| format!("{:.0} {unit}", f(r)))
+                .unwrap_or_else(|| "—".into())
+        };
+        self.page_frame(
+            t,
+            "Benchmarks",
+            "CPU single and all cores, memory bandwidth, and uncached disk (F_NOCACHE)".into(),
+        )
+        .child(
+            div().px_4().pb_3().child(
+                ui::pill(
+                    t,
+                    "bench",
+                    if self.benching {
+                        "Running… (about 20 s)"
+                    } else {
+                        "Run benchmarks"
+                    },
+                    self.benching,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.benching {
+                        return;
+                    }
+                    this.benching = true;
+                    this.run_bg(cx, sysops::run_benchmarks, |app, r, _| {
+                        app.benching = false;
+                        app.bench = Some(r);
+                    });
+                })),
+            ),
+        )
+        .child(
+            div()
+                .px_4()
+                .pb_4()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_3()
+                .child(metric(
+                    "SINGLE CORE",
+                    v(|r| r.single_core, "Mops/s"),
+                    "integer mixing, 1 thread",
+                ))
+                .child(metric(
+                    "ALL CORES",
+                    v(|r| r.multi_core, "Mops/s"),
+                    "same workload on every logical core",
+                ))
+                .child(metric(
+                    "SCALING",
+                    b.as_ref()
+                        .map(|r| {
+                            format!(
+                                "{:.1}× / {}",
+                                r.multi_core / r.single_core.max(1.),
+                                r.threads
+                            )
+                        })
+                        .unwrap_or_else(|| "—".into()),
+                    "multi ÷ single, threads",
+                ))
+                .child(metric(
+                    "MEMORY",
+                    b.as_ref()
+                        .map(|r| format!("{:.1} GB/s", r.memory_gbps))
+                        .unwrap_or_else(|| "—".into()),
+                    "256 MB copy, 4 passes",
+                ))
+                .child(metric(
+                    "DISK WRITE",
+                    v(|r| r.disk_write_mbps, "MB/s"),
+                    "512 MB sequential, cache bypassed",
+                ))
+                .child(metric(
+                    "DISK READ",
+                    v(|r| r.disk_read_mbps, "MB/s"),
+                    "512 MB sequential, cache bypassed",
+                )),
+        )
+    }
+
+    pub fn render_recorder(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let recording = self.recording.as_ref().map(|f| f.len());
+        let replay = self.replay.clone();
+        self.page_frame(
+            t,
+            "Flight Recorder",
+            format!(
+                "Saved as {} files in {}",
+                recorder::FORMAT,
+                recorder::dir().display()
+            ),
+        )
+        .child(
+            div()
+                .px_4()
+                .pb_3()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .items_center()
+                .child(match recording {
+                    None => ui::pill(t, "rec", "● Start recording", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.recording = Some(Vec::new());
+                            cx.notify();
+                        },
+                    )),
+                    Some(_) => ui::pill(t, "rec", "■ Stop and save", true).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            let frames = this.recording.take().unwrap_or_default();
+                            this.notice = Some(match recorder::save(frames) {
+                                Ok(p) => (
+                                    format!(
+                                        "Saved {}",
+                                        p.file_name().unwrap_or_default().to_string_lossy()
+                                    ),
+                                    false,
+                                ),
+                                Err(e) => (e, true),
+                            });
+                            this.recordings = recorder::list();
+                            cx.notify();
+                        },
+                    )),
+                })
+                .when_some(recording, |d, n| {
+                    d.child(
+                        div()
+                            .text_xs()
+                            .text_color(t.hot)
+                            .child(format!("Recording · {n} frames")),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .id("rec-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .px_4()
+                .pb_4()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .when_some(replay, |d, rec| {
+                    let peak = rec.frames.iter().map(|f| f.cpu).fold(0., f32::max);
+                    d.child(
+                        card(t)
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
+                                "Replay · {} frames · peak CPU {peak:.0}%",
+                                rec.frames.len()
+                            )))
+                            .child(div().text_xs().text_color(t.text_dim).child("CPU"))
+                            .child(ui::sparkline(
+                                rec.frames.iter().map(|f| f.cpu),
+                                100.,
+                                60.,
+                                t.accent.into(),
+                                rec.frames.len().max(1),
+                            ))
+                            .child(div().text_xs().text_color(t.text_dim).child("Memory"))
+                            .child(ui::sparkline(
+                                rec.frames.iter().map(|f| f.memory),
+                                100.,
+                                40.,
+                                t.good.into(),
+                                rec.frames.len().max(1),
+                            ))
+                            .children(
+                                rec.frames
+                                    .iter()
+                                    .max_by(|a, b| a.cpu.total_cmp(&b.cpu))
+                                    .map(|f| {
+                                        div().text_xs().text_color(t.text_dim).child(format!(
+                                            "Busiest at peak: {}",
+                                            f.top
+                                                .iter()
+                                                .map(|(n, c)| format!("{n} {c:.0}%"))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        ))
+                                    }),
+                            ),
+                    )
+                })
+                .child(
+                    card(t)
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Saved recordings"),
+                        )
+                        .children(self.recordings.iter().enumerate().map(|(i, path)| {
+                            let p = path.clone();
+                            div()
+                                .id(("recording", i))
+                                .flex()
+                                .flex_row()
+                                .py_1()
+                                .px_1()
+                                .rounded(px(6.))
+                                .text_sm()
+                                .cursor_pointer()
+                                .hover(|h| h.bg(t.glass_hover))
+                                .child(
+                                    div().flex_1().child(
+                                        path.file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .into_owned(),
+                                    ),
+                                )
+                                .child(div().text_xs().text_color(t.accent).child("Replay"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    match recorder::load(&p) {
+                                        Ok(r) => this.replay = Some(r),
+                                        Err(e) => this.notice = Some((e, true)),
+                                    }
+                                    cx.notify();
+                                }))
+                        })),
+                ),
+        )
+    }
+
+    pub fn render_settings(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = self.settings.clone();
+        let row = |label: &'static str, control: AnyElement| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .py_2()
+                .child(div().w(px(220.)).text_sm().child(label))
+                .child(control)
+        };
+        self.page_frame(
+            t,
+            "Settings",
+            format!(
+                "Saved to {}",
+                sysops::data_dir().join("native-settings.json").display()
+            ),
+        )
+        .child(
+            div().px_4().pb_4().child(
+                card(t)
+                    .child(row(
+                        "Appearance",
+                        ui::segmented(t)
+                            .children(
+                                [Appearance::System, Appearance::Light, Appearance::Dark].map(
+                                    |a| {
+                                        ui::pill(
+                                            t,
+                                            SharedString::from(format!("appearance-{a:?}")),
+                                            format!("{a:?}"),
+                                            s.appearance == a,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.settings.appearance = a;
+                                                this.settings.save();
+                                                cx.notify();
+                                            }),
+                                        )
+                                    },
+                                ),
+                            )
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "Glass",
+                        ui::segmented(t)
+                            .children([Glass::Clear, Glass::Tinted].map(|g| {
+                                ui::pill(
+                                    t,
+                                    SharedString::from(format!("glass-{g:?}")),
+                                    format!("{g:?}"),
+                                    s.glass == g,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.glass = g;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "Refresh every",
+                        ui::segmented(t)
+                            .children([1u64, 2, 5, 10].map(|n| {
+                                ui::pill(
+                                    t,
+                                    ("refresh-rate", n as usize),
+                                    format!("{n} s"),
+                                    s.refresh_secs == n,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.refresh_secs = n;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "Text size",
+                        ui::segmented(t)
+                            .children([90u32, 100, 115, 130].map(|n| {
+                                ui::pill(
+                                    t,
+                                    ("text-scale", n as usize),
+                                    format!("{n}%"),
+                                    s.text_scale == n,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.text_scale = n;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "High contrast",
+                        ui::segmented(t)
+                            .children([true, false].map(|on| {
+                                ui::pill(
+                                    t,
+                                    ("contrast", on as usize),
+                                    if on { "On" } else { "Off" },
+                                    s.high_contrast == on,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.high_contrast = on;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "Popout skin",
+                        ui::segmented(t)
+                            .children(
+                                std::iter::once(GLASS_SKIN.to_string())
+                                    .chain(skins().into_iter().map(|k| k.name))
+                                    .enumerate()
+                                    .map(|(i, name)| {
+                                        let active = s.popout_skin == name;
+                                        ui::pill(t, ("skin", i), name.clone(), active).on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.settings.popout_skin = name.clone();
+                                                this.settings.save();
+                                                cx.notify();
+                                            }),
+                                        )
+                                    }),
+                            )
+                            .into_any_element(),
+                    ))
+                    .child(row(
+                        "Mark this app in Processes",
+                        ui::segmented(t)
+                            .children([true, false].map(|on| {
+                                ui::pill(
+                                    t,
+                                    ("mark-self", on as usize),
+                                    if on { "On" } else { "Off" },
+                                    s.mark_self == on,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.mark_self = on;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
+                    )),
+            ),
+        )
+    }
+}
+
+const ACTIONS_W: f32 = 230.;
+
+/// A table cell: fixed width, except the last column which takes the remaining space.
+fn cell(last: bool, width: f32) -> Div {
+    let d = div().px_2().overflow_hidden();
+    if last {
+        d.flex_1().min_w_0()
+    } else {
+        d.flex_shrink_0().w(px(width))
+    }
+}
+
+fn card(t: &Theme) -> Div {
+    div()
+        .p_4()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .rounded(px(18.))
+        .bg(t.glass_strong)
+        .border_1()
+        .border_color(t.highlight)
+}

@@ -1,0 +1,14 @@
+# Build output
+/target
+/dist
+
+# Generated icon sizes (rebuilt by scripts/make_icon.py)
+/assets/AppIcon.iconset
+
+# Copied in by the Pages workflow
+/site/icon.png
+
+# Local files
+.DS_Store
+*.log
+/tmp

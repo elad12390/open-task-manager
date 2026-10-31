@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build universal DMG, publish release, update Homebrew cask
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches Cargo.toml
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build universal app and DMG
+        run: UNIVERSAL=1 ./scripts/package.sh
+
+      - name: Verify universal binary
+        run: lipo -info "dist/Open Task Manager.app/Contents/MacOS/otm" | grep -q "x86_64 arm64"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG="dist/OpenTaskManager-$VERSION.dmg"
+          shasum -a 256 "$DMG" | tee "$DMG.sha256"
+          NOTES="$(awk "/^## \\[$VERSION\\]/{flag=1;next}/^## \\[/{flag=0}flag" CHANGELOG.md)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" "$DMG.sha256" --clobber
+          else
+            gh release create "$TAG" "$DMG" "$DMG.sha256" --title "Open Task Manager $VERSION" --notes "$NOTES"
+          fi
+
+      - name: Update Homebrew cask
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$TAP_DEPLOY_KEY" ]; then echo "TAP_DEPLOY_KEY is not set; skipping the tap update"; exit 0; fi
+          SHA="$(shasum -a 256 "dist/OpenTaskManager-$VERSION.dmg" | cut -d' ' -f1)"
+          mkdir -p ~/.ssh && echo "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key && chmod 600 ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:elad12390/homebrew-tap.git tap
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$SHA/" packaging/open-task-manager.rb.in > tap/Casks/open-task-manager.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/open-task-manager.rb
+          git diff --cached --quiet && { echo "Cask already up to date"; exit 0; }
+          git commit -m "open-task-manager $VERSION"
+          git push origin HEAD:main

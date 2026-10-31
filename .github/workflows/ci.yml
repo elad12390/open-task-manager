@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Lint, test and package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: UI tests
+        run: cargo test
+
+      - name: Package app and DMG
+        run: ./scripts/package.sh
+
+      - name: Verify bundle
+        run: |
+          codesign --verify --verbose=2 "dist/Open Task Manager.app"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "dist/Open Task Manager.app/Contents/Info.plist"
+          hdiutil imageinfo dist/OpenTaskManager-*.dmg | grep -E '^Format:'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTaskManager-dmg
+          path: dist/*.dmg
+          if-no-files-found: error

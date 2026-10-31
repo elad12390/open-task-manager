@@ -1,0 +1,17 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org).
+
+## [0.1.0]
+
+First public release.
+
+- Native macOS system monitor in Rust and GPUI with Liquid-Glass styling.
+- Processes: flat list, process tree (operating system vs. your processes, grouped by subsystem and owner app),
+  owner, user and category grouping; per-branch memory sums; batch folding; keyboard navigation.
+- Configurable, reorderable, resizable columns with horizontal scrolling; app icons.
+- Right-click actions: quit, force quit (with children), suspend/resume, show in Finder, show connections, copy.
+- Overview, Users, Connections, Power, Startup items, Services, Installed apps, Disk space, Benchmarks,
+  Flight recorder, Settings, popout and screensaver.
+- Menu bar with update-speed controls and shortcuts.

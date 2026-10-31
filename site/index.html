@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Task Manager — a native, open-source system monitor for macOS</title>
+  <meta name="description" content="A fast, native, open-source system monitor for macOS written in Rust. Process tree, memory per app, right-click actions, keyboard navigation. Local-only, no telemetry.">
+  <link rel="icon" type="image/png" href="icon.png">
+  <meta property="og:title" content="Open Task Manager">
+  <meta property="og:description" content="A fast, native, open-source system monitor for macOS.">
+  <meta property="og:image" content="icon.png">
+  <style>
+    :root {
+      --bg: #eef2fb; --ink: #1d1d1f; --dim: #5b6070; --card: rgba(255,255,255,.62); --line: rgba(0,0,0,.08);
+      --accent: #2f6cf5; --mint: #2fc9b4; --code: #0f1630; --code-ink: #dfe7ff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b0f1d; --ink: #f2f4fa; --dim: #a3aac0; --card: rgba(255,255,255,.06); --line: rgba(255,255,255,.1); --code: #050814; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: var(--ink); background: var(--bg);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      background-image: radial-gradient(60rem 40rem at 15% -10%, rgba(62,123,250,.35), transparent 60%),
+                        radial-gradient(50rem 30rem at 100% 10%, rgba(95,245,224,.18), transparent 60%);
+      background-attachment: fixed;
+    }
+    main { max-width: 1040px; margin: 0 auto; padding: 72px 24px 48px; }
+    .hero { text-align: center; }
+    .hero img { width: 148px; height: 148px; filter: drop-shadow(0 18px 30px rgba(35,72,214,.35)); }
+    h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); letter-spacing: -.03em; margin: 18px 0 8px; }
+    .tagline { font-size: 1.2rem; color: var(--dim); max-width: 640px; margin: 0 auto 32px; }
+    .install {
+      display: inline-flex; align-items: center; gap: 12px; padding: 12px 14px 12px 20px; border-radius: 14px;
+      background: var(--code); color: var(--code-ink); font: 15px ui-monospace, "SF Mono", Menlo, monospace;
+      box-shadow: 0 10px 30px rgba(0,0,0,.18); max-width: 100%; overflow-x: auto;
+    }
+    .install button {
+      border: 0; border-radius: 9px; padding: 7px 12px; cursor: pointer; font: 600 13px -apple-system, sans-serif;
+      background: var(--accent); color: white; white-space: nowrap;
+    }
+    .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+    .btn {
+      display: inline-block; padding: 11px 20px; border-radius: 12px; text-decoration: none; font-weight: 600;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink); backdrop-filter: blur(20px);
+    }
+    .btn.primary { background: var(--accent); color: white; border-color: transparent; }
+    .note { color: var(--dim); font-size: .9rem; margin-top: 14px; }
+    h2 { font-size: 1.6rem; letter-spacing: -.02em; margin: 72px 0 20px; text-align: center; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .card {
+      padding: 20px; border-radius: 18px; background: var(--card); border: 1px solid var(--line);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    }
+    .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+    .card p { margin: 0; color: var(--dim); font-size: .95rem; }
+    .card .glyph { font-size: 1.4rem; margin-bottom: 8px; color: var(--accent); }
+    kbd {
+      font: 12px ui-monospace, Menlo, monospace; padding: 1px 6px; border-radius: 6px;
+      border: 1px solid var(--line); background: var(--card);
+    }
+    .privacy { text-align: center; max-width: 680px; margin: 0 auto; color: var(--dim); }
+    footer { text-align: center; color: var(--dim); font-size: .9rem; padding: 48px 24px 64px; }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <img src="icon.png" alt="Open Task Manager app icon">
+      <h1>Open Task Manager</h1>
+      <p class="tagline">A fast, native, open-source system monitor for macOS. See every process as a tree,
+        what each app really costs, and act on it — all locally.</p>
+
+      <div class="install">
+        <span id="cmd">brew install --cask elad12390/tap/open-task-manager</span>
+        <button id="copy" type="button">Copy</button>
+      </div>
+
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/elad12390/open-task-manager/releases/latest">Download DMG</a>
+        <a class="btn" href="https://github.com/elad12390/open-task-manager">View source on GitHub</a>
+      </div>
+      <p class="note">macOS 13 or later · Apple silicon and Intel · Apache-2.0</p>
+    </section>
+
+    <h2>Everything you expect from a task manager — and more</h2>
+    <div class="grid">
+      <div class="card"><div class="glyph">⌥</div><h3>A real process tree</h3>
+        <p>launchd at the root, the operating system's processes and yours in separate branches, grouped by
+          subsystem and by the app that owns them.</p></div>
+      <div class="card"><div class="glyph">Σ</div><h3>Memory per app</h3>
+        <p>Every branch sums its whole subtree, so a browser and all its helpers show up as one number.</p></div>
+      <div class="card"><div class="glyph">⌘</div><h3>Right-click actions</h3>
+        <p>Quit, force quit (with children), suspend and resume, show in Finder, show connections, copy details.
+          macOS's own processes are protected.</p></div>
+      <div class="card"><div class="glyph">⇅</div><h3>Keyboard first</h3>
+        <p><kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>←</kbd> <kbd>→</kbd> to fold, <kbd>Space</kbd> to toggle,
+          <kbd>⌥</kbd><kbd>→</kbd> to open a whole branch. Folding folds everything inside.</p></div>
+      <div class="card"><div class="glyph">▦</div><h3>Your columns</h3>
+        <p>Show, hide, drag to reorder, drag to resize, sort, and scroll sideways. App icons keep it scannable.</p></div>
+      <div class="card"><div class="glyph">◎</div><h3>The whole system</h3>
+        <p>Overview, per-core load, network, disk space with scan history, power and thermal state, users and
+          open connections.</p></div>
+      <div class="card"><div class="glyph">⏻</div><h3>Manage startup and services</h3>
+        <p>Enable or disable your launch agents, restart or stop services, uninstall apps to the Trash.</p></div>
+      <div class="card"><div class="glyph">●</div><h3>Record and benchmark</h3>
+        <p>A flight recorder you can replay, and CPU, memory and uncached disk benchmarks.</p></div>
+      <div class="card"><div class="glyph">◐</div><h3>Native and light</h3>
+        <p>Rust and GPUI, Liquid-Glass styling, light and dark mode, a popout mini monitor and a screensaver.</p></div>
+    </div>
+
+    <h2>Private by design</h2>
+    <p class="privacy">No telemetry, no accounts, no network requests. Open Task Manager reads your system with
+      macOS's own tools and keeps its settings on your Mac.</p>
+  </main>
+
+  <footer>
+    <a href="https://github.com/elad12390/open-task-manager">GitHub</a> ·
+    <a href="https://github.com/elad12390/open-task-manager/releases">Releases</a> ·
+    <a href="https://github.com/elad12390/open-task-manager/blob/main/LICENSE">Apache-2.0 license</a>
+  </footer>
+
+  <script>
+    document.getElementById("copy").addEventListener("click", async (e) => {
+      await navigator.clipboard.writeText(document.getElementById("cmd").textContent.trim());
+      e.target.textContent = "Copied";
+      setTimeout(() => (e.target.textContent = "Copy"), 1500);
+    });
+  </script>
+</body>
+</html>
