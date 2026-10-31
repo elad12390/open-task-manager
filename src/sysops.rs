@@ -1,7 +1,7 @@
 //! macOS system queries and guarded actions (launchd, lsof, Finder, pmset, du, benchmarks).
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{Read, Write},
     os::unix::io::AsRawFd,
@@ -105,9 +105,11 @@ pub struct Service {
     pub label: String,
     pub pid: Option<u32>,
     pub status: i32,
+    /// The program of a service that is not running, from its launch agent or daemon plist.
+    pub program: Option<PathBuf>,
 }
 
-pub fn services() -> Vec<Service> {
+fn launchctl_services() -> Vec<Service> {
     let out = run("launchctl", &["list"]).unwrap_or_default();
     out.lines()
         .skip(1)
@@ -120,9 +122,30 @@ pub fn services() -> Vec<Service> {
                 label,
                 pid: pid.parse().ok(),
                 status: status.parse().unwrap_or(0),
+                program: None,
             })
         })
         .collect()
+}
+
+pub fn services() -> Vec<Service> {
+    let mut list = launchctl_services();
+    let plists: HashMap<String, PathBuf> = launch_dirs()
+        .iter()
+        .flat_map(|(dir, _)| plist_paths(dir))
+        .map(|file| {
+            let label = file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            (label, file)
+        })
+        .collect();
+    for s in list.iter_mut().filter(|s| s.pid.is_none()) {
+        s.program = plists.get(&s.label).and_then(|file| plist_program(file));
+    }
+    list
 }
 
 #[derive(Clone, Debug)]
@@ -132,29 +155,60 @@ pub struct StartupItem {
     pub file: PathBuf,
     pub loaded: bool,
     pub editable: bool,
+    /// The program the launch agent or daemon runs.
+    pub program: Option<PathBuf>,
 }
 
 pub fn user_agents_dir() -> PathBuf {
     home().join("Library/LaunchAgents")
 }
 
-pub fn startup_items() -> Vec<StartupItem> {
-    let loaded: HashSet<String> = services().into_iter().map(|s| s.label).collect();
-    let dirs: [(PathBuf, &'static str); 3] = [
+fn launch_dirs() -> [(PathBuf, &'static str); 3] {
+    [
         (user_agents_dir(), "User agent"),
         (PathBuf::from("/Library/LaunchAgents"), "System agent"),
         (PathBuf::from("/Library/LaunchDaemons"), "System daemon"),
-    ];
+    ]
+}
+
+fn plist_paths(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("plist"))
+        .collect()
+}
+
+/// The program a launch agent or daemon runs: its `Program`, else the first of its `ProgramArguments`.
+pub fn plist_program(file: &Path) -> Option<PathBuf> {
+    let json = run(
+        "plutil",
+        &["-convert", "json", "-o", "-", &file.to_string_lossy()],
+    )
+    .ok()?;
+    let plist: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let program = plist
+        .get("Program")
+        .and_then(|p| p.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            plist
+                .get("ProgramArguments")?
+                .get(0)?
+                .as_str()
+                .map(str::to_string)
+        })?;
+    program.starts_with('/').then(|| PathBuf::from(program))
+}
+
+pub fn startup_items() -> Vec<StartupItem> {
+    let loaded: HashSet<String> = launchctl_services().into_iter().map(|s| s.label).collect();
     let mut items = Vec::new();
-    for (dir, scope) in dirs {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("plist") {
-                continue;
-            }
+    for (dir, scope) in launch_dirs() {
+        for path in plist_paths(&dir) {
             let label = path
                 .file_stem()
                 .unwrap_or_default()
@@ -165,6 +219,7 @@ pub fn startup_items() -> Vec<StartupItem> {
                 editable: scope == "User agent",
                 label,
                 scope,
+                program: plist_program(&path),
                 file: path,
             });
         }

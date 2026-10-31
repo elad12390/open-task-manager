@@ -1572,7 +1572,12 @@ impl OtmApp {
                 let tree_col = self.tree_column();
                 let (depth, descendants, collapsed, tree_memory) =
                     (*depth, *descendants, *collapsed, *tree_memory);
-                let bundle = crate::icons::bundle_of(&info.path);
+                let bundle = crate::icons::process_key(
+                    &info.name,
+                    &info.path,
+                    &info.owner_app,
+                    &self.owner_bundles,
+                );
                 let row_selector = format!("proc-row-{pid}");
                 div()
                     .id(("proc", ix))

@@ -604,6 +604,7 @@ impl OtmApp {
             )),
             loaded,
             editable: scope == "User agent",
+            program: None,
         };
         self.startup = vec![
             agents("com.dropbox.dropboxmacupdate.agent", "System agent", true),
@@ -629,6 +630,7 @@ impl OtmApp {
             label: label.into(),
             pid,
             status: 0,
+            program: None,
         })
         .collect();
         self.connections = [

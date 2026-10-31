@@ -109,6 +109,9 @@ impl Page {
     }
 }
 
+/// Icons rendered per background batch, so one batch never holds the list up for long.
+const ICON_BATCH: usize = 200;
+
 pub struct Resize {
     pub index: usize,
     pub start_x: Pixels,
@@ -178,8 +181,10 @@ pub struct OtmApp {
     pub menu_state: Option<crate::menus::MenuState>,
     /// App bundle path -> cached PNG icon.
     pub icons: std::collections::HashMap<String, PathBuf>,
-    /// Bundles whose icon has been asked for (rendered or failed), so each is rendered once.
+    /// Icon keys that have been asked for (rendered or failed), so each is rendered once.
     pub icons_requested: HashSet<String>,
+    /// Whether an icon render is running; the next batch waits for it.
+    pub icons_rendering: bool,
     /// Owning app name -> its bundle path (for icons on owner rows).
     pub owner_bundles: std::collections::HashMap<String, String>,
     /// Right-click menu: the row it is for and where it opened.
@@ -196,28 +201,55 @@ pub struct OtmApp {
 }
 
 impl OtmApp {
-    /// Render (once, in the background) the icons of app bundles seen in the latest sample.
+    /// Render (once, in the background, a batch at a time) the icons the tables show: the open
+    /// listing's rows, the processes and the folders of the last disk scan.
     pub fn request_icons(&mut self, cx: &mut Context<Self>) {
-        let mut wanted: Vec<String> = Vec::new();
+        if self.icons_rendering {
+            return;
+        }
         for p in &self.snapshot.processes {
-            if let Some(b) = crate::icons::bundle_of(&p.path) {
-                if p.owner_app != crate::categories::OS_OWNER {
-                    self.owner_bundles
-                        .entry(p.owner_app.clone())
-                        .or_insert_with(|| b.clone());
-                }
-                if self.icons_requested.insert(b.clone()) {
-                    wanted.push(b);
-                }
+            if p.owner_app != crate::categories::OS_OWNER
+                && let Some(b) = crate::icons::bundle_of(&p.path)
+            {
+                self.owner_bundles.entry(p.owner_app.clone()).or_insert(b);
+            }
+        }
+        let candidates: Vec<String> = self
+            .listing
+            .rows
+            .iter()
+            .filter_map(|r| r.icon.clone())
+            .chain(self.snapshot.processes.iter().filter_map(|p| {
+                crate::icons::process_key(&p.name, &p.path, &p.owner_app, &self.owner_bundles)
+            }))
+            .chain(
+                self.scans
+                    .first()
+                    .into_iter()
+                    .flat_map(|s| s.items.iter())
+                    .map(|f| crate::icons::path_key(&f.path)),
+            )
+            .collect();
+        let mut wanted: Vec<String> = Vec::new();
+        for key in candidates {
+            if wanted.len() == ICON_BATCH {
+                break;
+            }
+            if !self.icons.contains_key(&key) && self.icons_requested.insert(key.clone()) {
+                wanted.push(key);
             }
         }
         if wanted.is_empty() {
             return;
         }
+        self.icons_rendering = true;
         self.run_bg(
             cx,
             move || crate::icons::render(&wanted),
-            |app, found, _| app.icons.extend(found),
+            |app, found, _| {
+                app.icons.extend(found);
+                app.icons_rendering = false;
+            },
         );
     }
 
@@ -341,6 +373,7 @@ impl OtmApp {
             menu_state: None,
             icons: Default::default(),
             icons_requested: HashSet::new(),
+            icons_rendering: false,
             owner_bundles: Default::default(),
             context_menu: None,
             confirm: None,

@@ -1,11 +1,13 @@
 use std::{ops::Range, path::PathBuf, rc::Rc};
 
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px, uniform_list,
+    AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, img, prelude::*, px,
+    uniform_list,
 };
 
 use crate::{
     app::{OtmApp, Page},
+    icons,
     metrics::{fmt_bytes, fmt_duration, fmt_size},
     recorder,
     settings::{Appearance, GLASS_SKIN, Glass, skins},
@@ -34,12 +36,17 @@ pub struct ActionButton {
     pub danger: bool,
 }
 
+/// The 16 px icon and its gap, before a listing's first cell.
+const LIST_ICON_LEAD: f32 = 20.;
+
 pub struct ListRow {
     pub cells: Vec<SharedString>,
     /// One sort key per cell.
     pub keys: Vec<crate::tables::SortKey>,
     pub dim: bool,
     pub actions: Vec<ActionButton>,
+    /// The icon key (see `icons`) drawn before the first cell.
+    pub icon: Option<String>,
 }
 
 pub struct Listing {
@@ -49,6 +56,8 @@ pub struct Listing {
     pub total: usize,
     /// Every row's cells before the filter, for the filter's suggestions.
     pub cells: Vec<Vec<SharedString>>,
+    /// Whether the rows have icons, so the first cell reserves room for one.
+    pub icons: bool,
 }
 
 impl Default for Listing {
@@ -58,6 +67,7 @@ impl Default for Listing {
             rows: Rc::new(Vec::new()),
             total: 0,
             cells: Vec::new(),
+            icons: false,
         }
     }
 }
@@ -248,13 +258,24 @@ impl OtmApp {
 
     pub fn rebuild_listing(&mut self) {
         use crate::tables::{SortKey as K, num, text};
-        let row =
-            |cells: Vec<String>, keys: Vec<K>, dim: bool, actions: Vec<ActionButton>| ListRow {
-                cells: cells.into_iter().map(SharedString::from).collect(),
-                keys,
-                dim,
-                actions,
-            };
+        let row = |icon: Option<String>,
+                   cells: Vec<String>,
+                   keys: Vec<K>,
+                   dim: bool,
+                   actions: Vec<ActionButton>| ListRow {
+            cells: cells.into_iter().map(SharedString::from).collect(),
+            keys,
+            dim,
+            actions,
+            icon,
+        };
+        let by_pid: std::collections::HashMap<u32, &crate::metrics::ProcessInfo> =
+            self.snapshot.processes.iter().map(|p| (p.pid, p)).collect();
+        let pid_icon = |pid: u32| {
+            by_pid.get(&pid).and_then(|p| {
+                icons::process_key(&p.name, &p.path, &p.owner_app, &self.owner_bundles)
+            })
+        };
         let (headers, rows): (Vec<Col>, Vec<ListRow>) = match self.page {
             Page::Users => {
                 let mut users: std::collections::HashMap<&str, (usize, f32, u64)> =
@@ -281,6 +302,7 @@ impl OtmApp {
                         .map(|(name, (count, cpu, memory))| {
                             let share = memory as f64 / total * 100.;
                             row(
+                                Some(icons::USER_ICON.to_string()),
                                 vec![
                                     name.to_string(),
                                     count.to_string(),
@@ -322,6 +344,9 @@ impl OtmApp {
                         let state = if s.loaded { "Loaded" } else { "Not loaded" };
                         let file = s.file.display().to_string();
                         row(
+                            Some(icons::path_key(
+                                &s.program.as_ref().unwrap_or(&s.file).to_string_lossy(),
+                            )),
                             vec![s.label.clone(), s.scope.into(), state.into(), file.clone()],
                             vec![
                                 K::text(&s.label),
@@ -351,6 +376,11 @@ impl OtmApp {
                         }
                         let state = if s.pid.is_some() { "Running" } else { "Idle" };
                         row(
+                            s.pid.and_then(pid_icon).or_else(|| {
+                                s.program
+                                    .as_ref()
+                                    .map(|p| icons::path_key(&p.to_string_lossy()))
+                            }),
                             vec![
                                 s.label.clone(),
                                 s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
@@ -381,6 +411,9 @@ impl OtmApp {
                     .iter()
                     .map(|c| {
                         row(
+                            pid_icon(c.pid).or_else(|| {
+                                icons::process_key(&c.process, "", "", &self.owner_bundles)
+                            }),
                             vec![
                                 c.process.clone(),
                                 c.pid.to_string(),
@@ -424,6 +457,7 @@ impl OtmApp {
                             ]
                         };
                         row(
+                            Some(icons::path_key(&a.path.to_string_lossy())),
                             vec![
                                 a.name.clone(),
                                 a.version.clone(),
@@ -449,6 +483,7 @@ impl OtmApp {
         let total = rows.len();
         let cells = rows.iter().map(|r| r.cells.clone()).collect();
         let titles: Vec<&str> = headers.iter().map(|h| h.title).collect();
+        let has_icons = rows.iter().any(|r| r.icon.is_some());
         let mut rows: Vec<ListRow> = rows
             .into_iter()
             .filter(|r| {
@@ -465,6 +500,7 @@ impl OtmApp {
             rows: Rc::new(rows),
             total,
             cells,
+            icons: has_icons,
         };
     }
 
@@ -670,6 +706,17 @@ impl OtmApp {
             })
     }
 
+    /// A 16 px icon, or an empty slot of the same size while it renders, so the text stays aligned.
+    pub(crate) fn list_icon(&self, key: Option<&str>) -> AnyElement {
+        match key.and_then(|k| self.icons.get(k)) {
+            Some(path) => img(path.clone())
+                .size(px(16.))
+                .flex_shrink_0()
+                .into_any_element(),
+            None => div().w(px(16.)).flex_shrink_0().into_any_element(),
+        }
+    }
+
     fn render_list_row(
         &self,
         t: &Theme,
@@ -697,6 +744,7 @@ impl OtmApp {
                 let last = i + 1 == widths.len();
                 let header = self.listing.headers.get(i);
                 let numeric = header.is_some_and(|h| h.numeric);
+                let lead = i == 0 && self.listing.icons;
                 let full = c.to_string();
                 // The last column fills what the list has left after the others and the actions.
                 let room = if last {
@@ -718,7 +766,8 @@ impl OtmApp {
                     }
                 } else {
                     *w
-                } - 16.;
+                } - 16.
+                    - if lead { LIST_ICON_LEAD } else { 0. };
                 // Paths and endpoints keep their end; everything else ends in "…".
                 let shown = if header
                     .is_some_and(|h| matches!(h.title, "File" | "Location" | "Endpoint"))
@@ -733,6 +782,13 @@ impl OtmApp {
                     .whitespace_nowrap()
                     .when(numeric, |d| d.text_right().font_family("Menlo").text_xs())
                     .when(i > 0, |d| d.text_color(t.text_dim))
+                    .when(lead, |d| {
+                        d.flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .child(self.list_icon(r.icon.as_deref()))
+                    })
                     .child(shown)
                     .when(cut, |d| d.tooltip(crate::ui::tip(full)))
             }))
@@ -902,6 +958,7 @@ impl OtmApp {
                         })
                         .children(folders.into_iter().enumerate().map(|(i, item)| {
                             let path = item.path.clone();
+                            let icon = icons::path_key(&item.path);
                             div()
                                 .id(("folder", i))
                                 .flex()
@@ -912,14 +969,21 @@ impl OtmApp {
                                 .cursor_pointer()
                                 .hover(|h| h.bg(t.glass_hover))
                                 .rounded(px(6.))
-                                .child(cell(false, FOLDER_COLS[0].width).text_sm().child(
-                                    ui::ellipsize(
-                                        cx,
-                                        item.path.clone(),
-                                        FOLDER_COLS[0].width - 16.,
-                                        self.text_px(),
-                                    ),
-                                ))
+                                .child(
+                                    cell(false, FOLDER_COLS[0].width)
+                                        .text_sm()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(self.list_icon(Some(&icon)))
+                                        .child(ui::ellipsize(
+                                            cx,
+                                            item.path.clone(),
+                                            FOLDER_COLS[0].width - 16. - LIST_ICON_LEAD,
+                                            self.text_px(),
+                                        )),
+                                )
                                 .child(
                                     cell(false, FOLDER_COLS[1].width)
                                         .text_sm()
