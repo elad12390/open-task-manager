@@ -15,6 +15,8 @@ mod recorder;
 mod selftest;
 mod settings;
 mod sysops;
+#[cfg(test)]
+mod table_icons_tests;
 mod tables;
 mod theme;
 mod ui;

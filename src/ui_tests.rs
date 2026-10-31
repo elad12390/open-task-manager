@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Both tests point OTM_DATA_DIR at their own folder, so they must not overlap.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn center(b: Bounds<Pixels>) -> Point<Pixels> {
     b.center()
