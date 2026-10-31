@@ -8,6 +8,9 @@ mod crash_fix_tests;
 mod demo;
 mod filter;
 mod filter_bar;
+#[cfg(test)]
+mod holiday_themes_tests;
+mod holidays;
 mod icons;
 #[cfg(test)]
 mod listing_autocomplete_tests;
