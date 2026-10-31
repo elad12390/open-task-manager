@@ -11,26 +11,32 @@ use crate::{
 };
 
 /// Both tests point OTM_DATA_DIR at their own folder, so they must not overlap.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn center(b: Bounds<Pixels>) -> Point<Pixels> {
+pub(crate) fn center(b: Bounds<Pixels>) -> Point<Pixels> {
     b.center()
 }
 
-fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
+pub(crate) fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
     cx.run_until_parked();
     cx.debug_bounds(selector)
         .unwrap_or_else(|| panic!("element {selector} was not rendered"))
 }
 
-fn click(cx: &mut VisualTestContext, selector: &'static str) {
+pub(crate) fn click(cx: &mut VisualTestContext, selector: &'static str) {
     let at = center(bounds(cx, selector));
     cx.simulate_click(at, Modifiers::none());
     cx.run_until_parked();
 }
 
+/// Opens the Group menu and picks one of its items.
+pub(crate) fn pick_group(cx: &mut VisualTestContext, item: &'static str) {
+    click(cx, "group-btn");
+    click(cx, item);
+}
+
 /// Press at `from`, move there in steps with the button held, release at `to`.
-fn drag(cx: &mut VisualTestContext, from: Point<Pixels>, to: Point<Pixels>) {
+pub(crate) fn drag(cx: &mut VisualTestContext, from: Point<Pixels>, to: Point<Pixels>) {
     cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
     for i in 1..=8 {
         let f = i as f32 / 8.;
@@ -112,7 +118,7 @@ fn column_gestures(cx: &mut TestAppContext) {
         app.column_menu = false;
         cx.notify();
     });
-    click(cx, "group-User");
+    pick_group(cx, "group-User");
     let (group, has_groups) = view.read_with(cx, |app, _| {
         (
             app.layout.group_by,
@@ -155,7 +161,7 @@ fn process_tree_twisty(cx: &mut TestAppContext) {
 
     let (view, cx) = cx.add_window_view(OtmApp::new);
     cx.run_until_parked();
-    click(cx, "group-Parent");
+    pick_group(cx, "group-Parent");
     let count = |cx: &mut VisualTestContext| {
         view.read_with(cx, |app, _| {
             app.rows
@@ -235,7 +241,7 @@ fn keyboard_navigation(cx: &mut TestAppContext) {
         window.focus(&app.focus);
         cx.notify();
     });
-    click(cx, "group-Parent");
+    pick_group(cx, "group-Parent");
 
     // (cursor, its row index, every row's (id, depth, label))
     let state = |cx: &mut VisualTestContext| {
@@ -412,7 +418,7 @@ fn folding_folds_the_whole_batch(cx: &mut TestAppContext) {
         window.focus(&app.focus);
         cx.notify();
     });
-    click(cx, "group-Parent");
+    pick_group(cx, "group-Parent");
     // (rows shown, max depth shown, branches shown folded, branches shown unfolded)
     let shape = |cx: &mut VisualTestContext| {
         view.read_with(cx, |app, _| {
@@ -517,7 +523,7 @@ fn category_grouping(cx: &mut TestAppContext) {
 
     let (view, cx) = cx.add_window_view(OtmApp::new);
     cx.run_until_parked();
-    click(cx, "group-Category");
+    pick_group(cx, "group-Category");
     let heads = |cx: &mut VisualTestContext| {
         view.read_with(cx, |app, _| {
             let groups: Vec<(usize, String, usize, Option<&'static str>)> = app
@@ -580,7 +586,7 @@ fn folding_a_group_folds_everything_inside(cx: &mut TestAppContext) {
         window.focus(&app.focus);
         cx.notify();
     });
-    click(cx, "group-Parent");
+    pick_group(cx, "group-Parent");
     let os = RowId::Group("split:0".into());
     // Rows inside the Operating System section: (depth, has children, folded)
     let inside = |cx: &mut VisualTestContext, key: &RowId| {
@@ -643,7 +649,7 @@ fn folding_a_group_folds_everything_inside(cx: &mut TestAppContext) {
     assert_eq!(reopened, total);
 
     // Category view: folding macOS folds its sections; unfolding shows them, each folded.
-    click(cx, "group-Category");
+    pick_group(cx, "group-Category");
     let macos = RowId::Group("cat:macOS".into());
     click(cx, "group-twisty-cat:macOS");
     click(cx, "group-twisty-cat:macOS");
@@ -1160,7 +1166,7 @@ fn filter_field_chips_and_toolbar(cx: &mut TestAppContext) {
     // At the minimum window size the toolbar stays inside the window.
     cx.simulate_resize(gpui::size(px(860.), px(560.)));
     cx.run_until_parked();
-    for selector in ["columns-btn", "group-Category", "filter-field"] {
+    for selector in ["columns-btn", "group-btn", "filter-field"] {
         let b = bounds(cx, selector);
         println!("{selector}: {:?}..{:?}", b.left(), b.right());
         assert!(b.right() <= px(860.), "{selector} overflows the window");

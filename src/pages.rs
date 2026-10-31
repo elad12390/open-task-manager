@@ -8,6 +8,7 @@ use crate::{
     app::{OtmApp, Page},
     metrics::{fmt_bytes, fmt_duration, fmt_size},
     recorder,
+    scrollbar::{self, Axis},
     settings::{Appearance, GLASS_SKIN, Glass, skins},
     sysops::{self, ServiceAction},
     tables::{Col, cell},
@@ -653,24 +654,42 @@ impl OtmApp {
                     }),
             )
             .child(
-                uniform_list(
-                    "listing",
-                    count,
-                    cx.processor(move |this, range: Range<usize>, _, cx| {
-                        let rows = this.listing.rows.clone();
-                        let widths: Vec<f32> =
-                            this.listing.headers.iter().map(|h| h.width).collect();
-                        range
-                            .filter_map(|ix| {
-                                let r = rows.get(ix)?;
-                                Some(this.render_list_row(&theme, ix, r, &widths, cx))
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-                )
-                .flex_1()
-                .py_1()
-                .track_scroll(self.listing_scroll.clone()),
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        uniform_list(
+                            "listing",
+                            count,
+                            cx.processor(move |this, range: Range<usize>, _, cx| {
+                                let rows = this.listing.rows.clone();
+                                let widths: Vec<f32> =
+                                    this.listing.headers.iter().map(|h| h.width).collect();
+                                range
+                                    .filter_map(|ix| {
+                                        let r = rows.get(ix)?;
+                                        Some(this.render_list_row(&theme, ix, r, &widths, cx))
+                                    })
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                        .flex_1()
+                        .py_1()
+                        .track_scroll(self.listing_scroll.clone()),
+                    )
+                    .when_some(
+                        scrollbar::scrollbar(
+                            t,
+                            "listing-vbar",
+                            Axis::Vertical,
+                            &scrollbar::of_list(&self.listing_scroll),
+                            cx,
+                        ),
+                        |d, bar| d.child(bar),
+                    ),
             )
             .when(!self.listing_loading && count == 0, |d| {
                 d.child(self.listing_empty(t, cx))

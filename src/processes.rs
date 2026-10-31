@@ -15,11 +15,13 @@ use crate::{
     filter::Filter,
     metrics::{ProcessInfo, fmt_bytes},
     pages::Action,
+    scrollbar::{self, Axis},
     theme::Theme,
     ui,
 };
 
 const ROW_HEIGHT: f32 = 26.;
+const HEADER_HEIGHT: f32 = 30.;
 
 pub enum Row {
     Group {
@@ -1173,25 +1175,88 @@ impl OtmApp {
                     .child(self.filter_field(t, cx))
                     .child(
                         div()
+                            .relative()
                             .flex_shrink_0()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(div().text_xs().text_color(t.text_dim).child("Group"))
-                            .child(ui::segmented(t).children(GroupBy::ALL.map(|g| {
-                                ui::pill(t, g.label(), g.label(), self.layout.group_by == g)
-                                    .w(px(78.))
-                                    .flex()
-                                    .justify_center()
-                                    .debug_selector(|| format!("group-{g:?}"))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.layout.group_by = g;
-                                        this.layout_changed(cx);
-                                    }))
-                            }))),
+                            .child(
+                                ui::pill(
+                                    t,
+                                    "group-btn",
+                                    format!("Group: {} ▾", self.layout.group_by.label()),
+                                    self.group_menu,
+                                )
+                                .debug_selector(|| "group-btn".into())
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        // A press here while open already closed the menu as a click
+                                        // outside it; don't reopen it straight away.
+                                        if !std::mem::take(&mut this.group_menu_just_closed) {
+                                            this.group_menu = !this.group_menu;
+                                        }
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                            .when(self.group_menu, |d| {
+                                d.child(deferred(self.group_menu(t, cx)))
+                            }),
                     ),
             )
+    }
+
+    fn group_menu(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("group-menu")
+            .debug_selector(|| "group-menu".into())
+            .absolute()
+            .top_full()
+            .left_0()
+            .mt_1()
+            .w(px(168.))
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .bg(t.glass_strong)
+            .border_1()
+            .border_color(t.highlight)
+            .rounded(px(16.))
+            .shadow_lg()
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.group_menu = false;
+                this.group_menu_just_closed = true;
+                cx.notify();
+            }))
+            .children(GroupBy::ALL.into_iter().enumerate().map(|(i, g)| {
+                let current = self.layout.group_by == g;
+                div()
+                    .id(("group-opt", i))
+                    .debug_selector(move || format!("group-{g:?}"))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(8.))
+                    .text_sm()
+                    .cursor_pointer()
+                    .hover(|h| h.bg(t.glass_hover))
+                    .child(
+                        div()
+                            .w(px(12.))
+                            .text_xs()
+                            .text_color(t.accent)
+                            .child(if current { "✓" } else { "" }),
+                    )
+                    .child(g.label())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.layout.group_by = g;
+                        this.group_menu = false;
+                        this.layout_changed(cx);
+                    }))
+            }))
     }
 
     fn empty_state(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1341,7 +1406,7 @@ impl OtmApp {
         div()
             .flex()
             .flex_row()
-            .h(px(30.))
+            .h(px(HEADER_HEIGHT))
             .items_center()
             .px_3()
             .border_b_1()
@@ -1404,13 +1469,17 @@ impl OtmApp {
                             .child(div().mx_auto().w(px(1.)).h_full().bg(t.stroke))
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                                     cx.stop_propagation();
-                                    this.resizing = Some(Resize {
-                                        index,
-                                        start_x: ev.position.x,
-                                        start_width: width,
-                                    });
+                                    if ev.click_count > 1 {
+                                        this.fit_column(index, window, cx);
+                                    } else {
+                                        this.resizing = Some(Resize {
+                                            index,
+                                            start_x: ev.position.x,
+                                            start_width: width,
+                                        });
+                                    }
                                 }),
                             ),
                     )
@@ -1747,7 +1816,7 @@ impl OtmApp {
     }
 
     /// The column that carries the tree indent: Name if shown, otherwise the first visible column.
-    fn tree_column(&self) -> usize {
+    pub(crate) fn tree_column(&self) -> usize {
         let mut visible = self.layout.visible();
         self.layout
             .visible()
@@ -1773,45 +1842,73 @@ impl OtmApp {
             .overflow_hidden()
             .child(self.toolbar(t, cx))
             .child(
-                // Header and rows share one horizontally scrolling area as wide as all chosen columns,
-                // so every column can be reached; the rows still scroll vertically on their own.
-                axis_locked(
-                    div()
-                        .id("process-table")
-                        .debug_selector(|| "process-table".into())
-                        .flex_1()
-                        .min_h_0()
-                        .w_full()
-                        .overflow_x_scroll()
-                        .track_scroll(&self.hscroll),
-                )
-                .child(
-                    div()
-                        .h_full()
-                        .w(px(self.table_width()))
-                        .min_w_full()
-                        .flex()
-                        .flex_col()
-                        .child(self.header(t, cx))
-                        .child(axis_locked(
-                            uniform_list(
-                                "process-rows",
-                                rows.len(),
-                                cx.processor(move |this, range: Range<usize>, _, cx| {
-                                    let rows = this.rows.clone();
-                                    range
-                                        .filter_map(|ix| {
-                                            rows.get(ix)
-                                                .map(|row| this.render_row(&theme, ix, row, cx))
-                                        })
-                                        .collect::<Vec<_>>()
-                                }),
-                            )
-                            .flex_1()
-                            .py_1()
-                            .track_scroll(self.scroll.clone()),
-                        )),
-                ),
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(
+                        // Header and rows share one horizontally scrolling area as wide as all chosen
+                        // columns, so every column can be reached; the rows still scroll vertically on
+                        // their own. The bars sit beside it, not inside it, so they stay in view.
+                        axis_locked(
+                            div()
+                                .id("process-table")
+                                .debug_selector(|| "process-table".into())
+                                .absolute()
+                                .inset_0()
+                                .overflow_x_scroll()
+                                .track_scroll(&self.hscroll),
+                        )
+                        .child(
+                            div()
+                                .h_full()
+                                .w(px(self.table_width()))
+                                .min_w_full()
+                                .flex()
+                                .flex_col()
+                                .child(self.header(t, cx))
+                                .child(axis_locked(
+                                    uniform_list(
+                                        "process-rows",
+                                        rows.len(),
+                                        cx.processor(move |this, range: Range<usize>, _, cx| {
+                                            let rows = this.rows.clone();
+                                            range
+                                                .filter_map(|ix| {
+                                                    rows.get(ix).map(|row| {
+                                                        this.render_row(&theme, ix, row, cx)
+                                                    })
+                                                })
+                                                .collect::<Vec<_>>()
+                                        }),
+                                    )
+                                    .flex_1()
+                                    .py_1()
+                                    .track_scroll(self.scroll.clone()),
+                                )),
+                        ),
+                    )
+                    .when_some(
+                        scrollbar::scrollbar(
+                            t,
+                            "process-vbar",
+                            Axis::Vertical,
+                            &scrollbar::of_list(&self.scroll),
+                            cx,
+                        ),
+                        |d, bar| d.child(bar.top(px(HEADER_HEIGHT))),
+                    )
+                    .when_some(
+                        scrollbar::scrollbar(
+                            t,
+                            "process-hbar",
+                            Axis::Horizontal,
+                            &self.hscroll,
+                            cx,
+                        ),
+                        |d, bar| d.child(bar),
+                    ),
             )
             .when(
                 self.rows.is_empty() && self.filter_active() && !self.typing_to_suggestion(),
