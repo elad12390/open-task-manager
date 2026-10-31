@@ -8,7 +8,8 @@ use std::{
 
 use gpui::{
     Context, FocusHandle, FontWeight, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent,
-    Pixels, Render, UniformListScrollHandle, Window, div, prelude::*, px,
+    Pixels, Render, Rgba, UniformListScrollHandle, Window, div, linear_color_stop, linear_gradient,
+    prelude::*, px,
 };
 
 use crate::{
@@ -600,6 +601,7 @@ impl OtmApp {
             .px_3()
             .pb_3()
             .gap_0p5()
+            .children(t.holiday.map(|h| holiday_band(h.palette().band)))
             .child(
                 div()
                     .px_2()
@@ -613,6 +615,15 @@ impl OtmApp {
                             .text_color(t.text)
                             .child("Open Task Manager"),
                     )
+                    .when_some(t.holiday, |d, h| {
+                        d.child(
+                            div()
+                                .text_xs()
+                                .text_color(t.accent)
+                                .debug_selector(move || format!("sidebar-greeting-{}", h.name()))
+                                .child(h.greeting()),
+                        )
+                    })
                     .child(div().text_xs().text_color(t.text_dim).child(s.host.clone())),
             )
             .children(Page::SECTIONS.iter().map(|(title, pages)| {
@@ -694,6 +705,19 @@ impl OtmApp {
                     ),
             )
     }
+}
+
+fn holiday_band(colors: [Rgba; 2]) -> impl IntoElement {
+    div()
+        .h(px(3.))
+        .mx_2()
+        .mb_1()
+        .rounded_full()
+        .bg(linear_gradient(
+            90.,
+            linear_color_stop(colors[0], 0.),
+            linear_color_stop(colors[1], 1.),
+        ))
 }
 
 fn mini_meter(t: &Theme, label: &'static str, pct: f32) -> impl IntoElement {

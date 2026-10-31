@@ -1,15 +1,38 @@
 use gpui::{Hsla, Rgba, WindowAppearance, rgba};
 
-use crate::settings::{Appearance, Glass, Settings};
+use crate::{
+    holidays::{self, Holiday},
+    settings::{Appearance, Glass, Settings},
+};
 
 pub fn with_alpha(c: Rgba, a: f32) -> Rgba {
     Rgba { a, ..c }
+}
+
+/// Source-over compositing of a translucent `top` onto `base`, keeping `base`'s alpha.
+fn over(base: Rgba, top: Rgba) -> Rgba {
+    let a = top.a;
+    Rgba {
+        r: top.r * a + base.r * (1. - a),
+        g: top.g * a + base.g * (1. - a),
+        b: top.b * a + base.b * (1. - a),
+        a: base.a,
+    }
+}
+
+fn is_dark(appearance: WindowAppearance) -> bool {
+    matches!(
+        appearance,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+    )
 }
 
 /// Liquid Glass palette: translucent layers over a blurred window, hairline
 /// highlights on top edges, and the system accent blue.
 #[derive(Clone, Copy)]
 pub struct Theme {
+    /// The holiday whose palette, band and greeting are applied, if any.
+    pub holiday: Option<Holiday>,
     pub window_tint: Rgba,
     pub glass: Rgba,
     pub glass_strong: Rgba,
@@ -31,11 +54,21 @@ pub struct Theme {
 
 impl Theme {
     pub fn resolve(appearance: WindowAppearance, settings: &Settings) -> Self {
-        let mut t = match settings.appearance {
-            Appearance::Light => Self::light(),
-            Appearance::Dark => Self::dark(),
-            Appearance::System => Self::for_appearance(appearance),
+        let dark = match settings.appearance {
+            Appearance::Light => false,
+            Appearance::Dark => true,
+            Appearance::System => is_dark(appearance),
         };
+        let mut t = if dark { Self::dark() } else { Self::light() };
+        if let Some(holiday) = holidays::current(settings.holiday_theme) {
+            let p = holiday.palette();
+            t.holiday = Some(holiday);
+            t.accent = p.accent(dark);
+            t.accent_soft = with_alpha(t.accent, t.accent_soft.a);
+            t.selection = p.fill;
+            t.window_tint = over(t.window_tint, p.tint);
+            t.glass = over(t.glass, p.tint);
+        }
         if settings.glass == Glass::Tinted {
             t.window_tint = with_alpha(t.window_tint, 0.82);
             t.glass = with_alpha(t.glass, 0.86);
@@ -54,14 +87,16 @@ impl Theme {
     }
 
     pub fn for_appearance(appearance: WindowAppearance) -> Self {
-        match appearance {
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
-            _ => Self::light(),
+        if is_dark(appearance) {
+            Self::dark()
+        } else {
+            Self::light()
         }
     }
 
     fn light() -> Self {
         Self {
+            holiday: None,
             window_tint: rgba(0xf4f6fa66),
             glass: rgba(0xffffff8c),
             glass_strong: rgba(0xffffffc4),
@@ -84,6 +119,7 @@ impl Theme {
 
     fn dark() -> Self {
         Self {
+            holiday: None,
             window_tint: rgba(0x1c1c1e73),
             glass: rgba(0x2c2c2e8c),
             glass_strong: rgba(0x3a3a3cc4),

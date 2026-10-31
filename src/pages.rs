@@ -6,6 +6,7 @@ use gpui::{
 
 use crate::{
     app::{OtmApp, Page},
+    holidays::{Holiday, HolidayMode},
     metrics::{fmt_bytes, fmt_duration, fmt_size},
     recorder,
     settings::{Appearance, GLASS_SKIN, Glass, skins},
@@ -1507,10 +1508,45 @@ impl OtmApp {
                                 ))
                             }))
                             .into_any_element(),
+                    ))
+                    .child(row(
+                        "Holiday themes",
+                        ui::segmented(t)
+                            .flex_wrap()
+                            .max_w(px(560.))
+                            .children(holiday_modes().into_iter().map(|(label, mode)| {
+                                let selector = format!("holiday-{label}");
+                                ui::pill(
+                                    t,
+                                    SharedString::from(selector.clone()),
+                                    label,
+                                    s.holiday_theme == mode,
+                                )
+                                .debug_selector(move || selector)
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.settings.holiday_theme = mode;
+                                        this.settings.save();
+                                        cx.notify();
+                                    },
+                                ))
+                            }))
+                            .into_any_element(),
                     )),
             ),
         )
     }
+}
+
+/// The Holiday themes choices: Automatic, Off, then each holiday to preview.
+fn holiday_modes() -> Vec<(&'static str, HolidayMode)> {
+    [
+        ("Automatic", HolidayMode::Automatic),
+        ("Off", HolidayMode::Off),
+    ]
+    .into_iter()
+    .chain(Holiday::ALL.map(|h| (h.name(), HolidayMode::Pinned(h))))
+    .collect()
 }
 
 const ACTIONS_W: f32 = 230.;

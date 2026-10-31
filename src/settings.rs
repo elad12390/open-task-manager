@@ -2,7 +2,7 @@ use std::fs;
 
 use serde::{Deserialize, Serialize};
 
-use crate::sysops;
+use crate::{holidays::HolidayMode, sysops};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Appearance {
@@ -27,6 +27,7 @@ pub struct Settings {
     pub text_scale: u32,
     pub high_contrast: bool,
     pub popout_skin: String,
+    pub holiday_theme: HolidayMode,
 }
 
 impl Default for Settings {
@@ -39,6 +40,7 @@ impl Default for Settings {
             text_scale: 100,
             high_contrast: false,
             popout_skin: GLASS_SKIN.into(),
+            holiday_theme: HolidayMode::Automatic,
         }
     }
 }

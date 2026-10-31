@@ -5,6 +5,9 @@ mod context_menu;
 mod demo;
 mod filter;
 mod filter_bar;
+#[cfg(test)]
+mod holiday_themes_tests;
+mod holidays;
 mod icons;
 mod menus;
 mod metrics;
