@@ -92,7 +92,7 @@ pub fn fitted_width(app: &OtmApp, index: usize, window: &Window) -> Option<f32> 
         window,
         cache: HashMap::new(),
     };
-    let mut widest = cell(&[m.width(&format!("{} ↓", id.title()), Face::Strong, small)]);
+    let mut widest = cell(&[m.width(id.title(), Face::Strong, small), SLOT]);
     for row in app.rows.iter() {
         let needed = match row {
             Row::Group {

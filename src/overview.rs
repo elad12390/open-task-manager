@@ -8,7 +8,7 @@ use crate::{
     ui,
 };
 
-fn card(t: &Theme, title: &'static str, value: String, detail: String) -> Div {
+fn card(t: &Theme, title: &'static str, value: impl IntoElement, detail: impl IntoElement) -> Div {
     div()
         .flex_1()
         .min_w(px(220.))
@@ -132,8 +132,18 @@ impl OtmApp {
                             card(
                                 t,
                                 "NETWORK",
-                                format!("↓ {}/s", fmt_bytes(s.net_down)),
-                                format!("↑ {}/s", fmt_bytes(s.net_up)),
+                                ui::icon_text(
+                                    "arrow-down",
+                                    20.,
+                                    t.text,
+                                    format!("{}/s", fmt_bytes(s.net_down)),
+                                ),
+                                ui::icon_text(
+                                    "arrow-up",
+                                    11.,
+                                    t.text_dim,
+                                    format!("{}/s", fmt_bytes(s.net_up)),
+                                ),
                             )
                             .child(ui::sparkline(
                                 h.net_down.iter().copied(),
