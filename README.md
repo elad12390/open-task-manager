@@ -61,8 +61,11 @@ cargo run --release              # run it
 - **Memory sums per branch** (Σ) so you can see what a whole app with all its helpers costs.
 - **Dynamic filters** with autocomplete: chips for app, user, category, state, CPU and memory thresholds.
 - **Configurable columns**: show/hide, reorder by dragging, resize, sort; scroll sideways to reach every column.
+- **Multi-selection**: ⌘-click, Shift-click, Shift+arrows and ⌘A in every table; actions apply to the whole selection.
+- **Holiday themes**: 21 holidays, applied automatically around each date (or pick one in Settings).
+- **Double-click a column divider** to fit the column; overlay scrollbars wherever content overflows.
 - **Every table sorts and filters**: click any header to sort (numbers biggest first, click again to reverse);
-  the filter searches every column. Shortened text shows its full value on hover.
+  the filter searches every column and suggests each column's values as chips. Shortened text shows its full value on hover.
 - **App icons** next to processes and owner groups.
 - **Right-click actions**: Quit, Force Quit (asks first), Force Quit with children, Suspend/Resume, Show in Finder,
   Show Connections, Copy PID/path/info. Mass-quitting the operating system's own processes is disabled.

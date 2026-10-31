@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org).
 
+## [0.2.0]
+
+- Multi-selection in every table, desktop style: ⌘-click (or Ctrl-click) toggles, Shift-click selects a range,
+  Shift+arrows extend, ⌘A selects all. Quit, Force Quit, Copy and the right-click menu act on the whole selection;
+  listing pages get bulk Enable/Disable, Restart/Stop, Move to Trash (one confirmation) and Copy.
+- Autocomplete in every filter: each page suggests its columns' values (State, Scope, Protocol, Process, User…)
+  as chips with counts.
+- Double-click a column divider to fit the column to its content.
+- Overlay scrollbars wherever content overflows: the process table (both directions), every listing table and the
+  Overview, Power, Benchmarks, Settings, Disk Space and Recorder pages.
+- Group processes from a dropdown instead of a segmented control.
+- App icons in every table and on nearly every process (owner app, system icons, or the executable's own icon).
+- Holiday themes for 21 holidays, applied automatically around each date (Settings: Automatic, Off, or preview any).
+- Lucide icons replace every emoji and glyph in the interface, and the app logo sits next to its name.
+- Fixed: opening the Popout or the Screensaver crashed the app.
+- Dark-mode accent and holiday palettes meet WCAG 4.5:1 contrast.
+
 ## [0.1.1]
 
 Sortable, filterable tables everywhere, and a pass over the small details, checked against Apple's

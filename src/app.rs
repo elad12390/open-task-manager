@@ -729,11 +729,14 @@ impl OtmApp {
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .child(
+                                // Sized to sit beside the logo inside the sidebar.
                                 div()
-                                    .text_base()
+                                    .text_sm()
+                                    .whitespace_nowrap()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(t.text)
                                     .child("Open Task Manager"),
