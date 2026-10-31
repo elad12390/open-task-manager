@@ -148,9 +148,20 @@ pub struct OtmApp {
     pub listing_scroll: UniformListScrollHandle,
     /// The press that is in progress closed the Columns menu (see the Columns button).
     pub column_menu_just_closed: bool,
+    /// The cursor's pid, when the cursor is on a process.
     pub selected: Option<u32>,
     /// Keyboard cursor: a process or a group row.
     pub cursor: Option<crate::processes::RowId>,
+    /// Processes selected with the cursor (click, ⌘-click, Shift-click, Shift-arrows, ⌘A).
+    pub selection: HashSet<u32>,
+    /// Where a Shift-click or Shift-arrow range starts.
+    pub anchor: Option<crate::processes::RowId>,
+    /// Listing pages: the selected rows (by `ListRow::key`), their cursor and range anchor.
+    pub list_selection: HashSet<String>,
+    pub list_cursor: Option<String>,
+    pub list_anchor: Option<String>,
+    /// Installed Apps: a bulk Move to Trash waiting for confirmation.
+    pub bulk_trash: Option<Vec<PathBuf>>,
     pub focus: FocusHandle,
     pub scroll: UniformListScrollHandle,
     /// Horizontal scroll of the process table (header and rows together).
@@ -249,11 +260,7 @@ impl OtmApp {
                                 frames.push(Frame::from_snapshot(&snapshot));
                             }
                             app.snapshot = snapshot;
-                            if app.selected.is_some_and(|pid| {
-                                !app.snapshot.processes.iter().any(|p| p.pid == pid)
-                            }) {
-                                app.selected = None;
-                            }
+                            app.drop_exited();
                             app.rebuild_rows();
                             if app.page == crate::app::Page::Users {
                                 app.rebuild_listing();
@@ -314,6 +321,12 @@ impl OtmApp {
             column_menu_just_closed: false,
             selected: None,
             cursor: None,
+            selection: HashSet::new(),
+            anchor: None,
+            list_selection: HashSet::new(),
+            list_cursor: None,
+            list_anchor: None,
+            bulk_trash: None,
             focus,
             scroll: UniformListScrollHandle::new(),
             hscroll: gpui::ScrollHandle::new(),
@@ -497,7 +510,29 @@ impl OtmApp {
             };
             if let Some(nav) = nav {
                 self.column_menu = false;
-                self.navigate_processes(nav);
+                let extend = k.modifiers.shift
+                    && matches!(
+                        nav,
+                        Nav::Up | Nav::Down | Nav::PageUp | Nav::PageDown | Nav::Home | Nav::End
+                    );
+                self.move_processes(nav, extend);
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
+        }
+        if self.is_listing() && !k.modifiers.platform && !k.modifiers.control && !k.modifiers.alt {
+            let nav = match k.key.as_str() {
+                "up" => Some(Nav::Up),
+                "down" => Some(Nav::Down),
+                "pageup" => Some(Nav::PageUp),
+                "pagedown" => Some(Nav::PageDown),
+                "home" if !self.filter_focused => Some(Nav::Home),
+                "end" if !self.filter_focused => Some(Nav::End),
+                _ => None,
+            };
+            if let Some(nav) = nav {
+                self.move_list_cursor(nav, k.modifiers.shift);
                 cx.stop_propagation();
                 cx.notify();
                 return;
@@ -517,12 +552,13 @@ impl OtmApp {
                 return;
             }
             "escape" => {
-                // Esc clears the filter first, and leaves the field once it is empty.
+                // Esc clears the filter, then collapses a multi-selection to the cursor row, and
+                // leaves the field once neither is left.
                 if self.filter_active() {
                     self.query.clear();
                     self.caret_back = 0;
                     self.chips.clear();
-                } else {
+                } else if !self.collapse_selection() {
                     self.blur_filter();
                 }
                 self.column_menu = false;

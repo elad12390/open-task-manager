@@ -105,9 +105,50 @@ impl OtmApp {
         out
     }
 
+    /// The menu for a right-click inside a multi-selection: the same actions for every selected row.
+    fn selection_items(&self, pids: &[u32]) -> Vec<Item> {
+        let n = pids.len();
+        let pid_list = pids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        vec![
+            item(
+                format!("Quit {n} Processes"),
+                Cmd::Signal {
+                    pids: pids.to_vec(),
+                    sig: libc::SIGTERM,
+                    verb: "Quit",
+                },
+            ),
+            Item {
+                danger: true,
+                ..item(
+                    format!("Force Quit {n} Processes…"),
+                    Cmd::Signal {
+                        pids: pids.to_vec(),
+                        sig: libc::SIGKILL,
+                        verb: "Force quit",
+                    },
+                )
+            },
+            separator(),
+            item(
+                format!("Copy {n} Rows"),
+                Cmd::Copy("the rows", self.process_lines(pids)),
+            ),
+            item("Copy PIDs", Cmd::Copy("the PIDs", pid_list)),
+        ]
+    }
+
     fn all_context_items(&self, id: &RowId) -> Vec<Item> {
         match id {
             RowId::Pid(pid) => {
+                let selected = self.selected_pids();
+                if selected.len() > 1 && selected.contains(pid) {
+                    return self.selection_items(&selected);
+                }
                 let Some(p) = self.snapshot.processes.iter().find(|p| p.pid == *pid) else {
                     return vec![item("Copy PID", Cmd::Copy("the PID", pid.to_string()))];
                 };

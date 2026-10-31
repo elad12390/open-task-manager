@@ -31,6 +31,7 @@ actions!(
         ShowRecordingsFolder,
         CloseWindow,
         CopySelected,
+        SelectAll,
         QuitProcess,
         ForceQuitProcess,
         Find,
@@ -151,7 +152,8 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
         Menu {
             name: "Edit".into(),
             items: vec![
-                MenuItem::action("Copy Selected Process", CopySelected),
+                MenuItem::action("Copy Selected", CopySelected),
+                MenuItem::action("Select All", SelectAll),
                 MenuItem::separator(),
                 MenuItem::action("Quit Process", QuitProcess),
                 MenuItem::action("Force Quit Process…", ForceQuitProcess),
@@ -370,24 +372,35 @@ impl OtmApp {
         cx.notify();
     }
 
+    /// ⌘C and Edit > Copy Selected: one line per selected row (tab-separated visible columns).
     fn copy_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(p) = self
-            .selected
-            .and_then(|pid| self.snapshot.processes.iter().find(|p| p.pid == pid))
-        else {
+        if self.is_listing() {
+            return self.copy_list_rows(cx);
+        }
+        let pids = self.selected_pids();
+        let Some(&pid) = pids.first() else {
             return;
         };
-        let text = self
-            .layout
-            .visible()
-            .map(|(_, c)| format!("{}: {}", c.id.title(), c.id.cell(p)))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let text = self.process_lines(&pids);
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.notice = Some((
-            format!("Copied the details of {} (PID {})", p.name, p.pid),
+            match self.snapshot.processes.iter().find(|p| p.pid == pid) {
+                Some(p) if pids.len() == 1 => {
+                    format!("Copied the details of {} (PID {})", p.name, p.pid)
+                }
+                _ => format!("Copied {} rows", pids.len()),
+            },
             false,
         ));
+        cx.notify();
+    }
+
+    fn select_all(&mut self, cx: &mut Context<Self>) {
+        if self.is_listing() {
+            self.select_all_list();
+        } else if self.page == Page::Processes {
+            self.select_all_processes();
+        }
         cx.notify();
     }
 
@@ -430,14 +443,17 @@ impl OtmApp {
         .on_action(cx.listener(|this, _: &ExportProcesses, _, cx| this.export_csv(cx)))
         .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
         .on_action(cx.listener(|this, _: &CopySelected, _, cx| this.copy_selected(cx)))
+        .on_action(cx.listener(|this, _: &SelectAll, _, cx| this.select_all(cx)))
         .on_action(cx.listener(|this, _: &QuitProcess, _, cx| {
-            if let Some(pid) = this.selected {
-                this.perform(crate::pages::Action::Signal(pid, false), cx);
+            let pids = this.selected_pids();
+            if !pids.is_empty() {
+                this.run_context_signal(pids, libc::SIGTERM, "Quit", cx);
             }
         }))
         .on_action(cx.listener(|this, _: &ForceQuitProcess, _, cx| {
-            if let Some(pid) = this.selected {
-                this.ask_force_quit(vec![pid]);
+            let pids = this.selected_pids();
+            if !pids.is_empty() {
+                this.ask_force_quit(pids);
                 cx.notify();
             }
         }))
@@ -515,6 +531,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-e", ExportProcesses, None),
         KeyBinding::new("cmd-w", CloseWindow, None),
         KeyBinding::new("cmd-c", CopySelected, None),
+        KeyBinding::new("cmd-a", SelectAll, None),
         KeyBinding::new("alt-cmd-q", QuitProcess, None),
         KeyBinding::new("cmd-f", Find, None),
         KeyBinding::new("cmd-1", ShowOverview, None),

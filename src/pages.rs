@@ -1,12 +1,14 @@
-use std::{ops::Range, path::PathBuf, rc::Rc};
+use std::{collections::HashSet, ops::Range, path::PathBuf, rc::Rc};
 
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, px, uniform_list,
+    AnyElement, ClipboardItem, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*,
+    px, uniform_list,
 };
 
 use crate::{
     app::{OtmApp, Page},
     metrics::{fmt_bytes, fmt_duration, fmt_size},
+    processes::Nav,
     recorder,
     settings::{Appearance, GLASS_SKIN, Glass, skins},
     sysops::{self, ServiceAction},
@@ -25,7 +27,11 @@ pub enum Action {
     Trash(PathBuf),
     CancelTrash,
     Reveal(String),
-    Signal(u32, bool),
+    /// Several actions run in turn, reported as one notice (`what`) or as the failures.
+    Batch {
+        what: String,
+        actions: Vec<Action>,
+    },
 }
 
 pub struct ActionButton {
@@ -35,6 +41,8 @@ pub struct ActionButton {
 }
 
 pub struct ListRow {
+    /// Stable identity of the row (its file, path, label or endpoint), for the selection.
+    pub key: String,
     pub cells: Vec<SharedString>,
     /// One sort key per cell.
     pub keys: Vec<crate::tables::SortKey>,
@@ -75,6 +83,29 @@ fn danger(label: &'static str, action: Action) -> ActionButton {
     }
 }
 
+/// Run one action (off the main thread); a batch runs every action and reports how many failed.
+fn run_action(action: Action) -> Result<(), String> {
+    match action {
+        Action::Load(p) => sysops::toggle_startup(&p, true),
+        Action::Unload(p) => sysops::toggle_startup(&p, false),
+        Action::Restart(l) => sysops::control_service(&l, ServiceAction::Restart),
+        Action::Stop(l) => sysops::control_service(&l, ServiceAction::Stop),
+        Action::Trash(p) => sysops::trash_app(&p),
+        Action::Batch { actions, .. } => {
+            let total = actions.len();
+            let errors: Vec<String> = actions
+                .into_iter()
+                .filter_map(|a| run_action(a).err())
+                .collect();
+            match errors.first() {
+                None => Ok(()),
+                Some(first) => Err(format!("{} of {total} failed ({first})", errors.len())),
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 impl OtmApp {
     /// Run `work` off the main thread, then apply its result on the UI thread.
     pub fn run_bg<R: Send + 'static>(
@@ -107,6 +138,7 @@ impl OtmApp {
         self.blur_filter();
         self.column_menu = false;
         self.confirm_trash = None;
+        self.clear_list_selection();
         self.load_page(cx);
     }
 
@@ -199,35 +231,190 @@ impl OtmApp {
                 "Moved {} to the Trash",
                 p.file_name().unwrap_or_default().to_string_lossy()
             ),
-            Action::Signal(pid, force) => format!(
-                "{} process {pid}",
-                if *force { "Force quit" } else { "Quit" }
-            ),
+            Action::Batch { what, .. } => what.clone(),
             _ => String::new(),
         };
         self.run_bg(
             cx,
-            move || match action {
-                Action::Load(p) => sysops::toggle_startup(&p, true),
-                Action::Unload(p) => sysops::toggle_startup(&p, false),
-                Action::Restart(l) => sysops::control_service(&l, ServiceAction::Restart),
-                Action::Stop(l) => sysops::control_service(&l, ServiceAction::Stop),
-                Action::Trash(p) => sysops::trash_app(&p),
-                Action::Signal(pid, force) => sysops::signal_process(pid, force),
-                _ => Ok(()),
-            },
+            move || run_action(action),
             move |app, result, cx| {
                 app.notice = Some(match result {
                     Ok(()) => (describe, false),
                     Err(e) => (e, true),
                 });
                 if app.page == Page::Processes {
-                    app.selected = None;
+                    app.set_cursor(None);
                 } else {
                     app.load_page(cx);
                 }
             },
         );
+    }
+
+    /// The selected listing rows that are on screen, in list order.
+    pub fn selected_list_rows(&self) -> Vec<&ListRow> {
+        self.listing
+            .rows
+            .iter()
+            .filter(|r| self.list_selection.contains(&r.key))
+            .collect()
+    }
+
+    pub fn is_listing(&self) -> bool {
+        !Self::listing_table(self.page).is_empty()
+    }
+
+    fn clear_list_selection(&mut self) {
+        self.list_selection.clear();
+        self.list_cursor = None;
+        self.list_anchor = None;
+        self.bulk_trash = None;
+    }
+
+    fn set_list_cursor(&mut self, key: String) {
+        self.list_selection = HashSet::from([key.clone()]);
+        self.list_anchor = Some(key.clone());
+        self.list_cursor = Some(key);
+    }
+
+    fn list_position(&self, key: &str) -> Option<usize> {
+        self.listing.rows.iter().position(|r| r.key == key)
+    }
+
+    fn extend_list_selection(&mut self, key: String) {
+        let from = self
+            .list_anchor
+            .clone()
+            .or_else(|| self.list_cursor.clone())
+            .unwrap_or_else(|| key.clone());
+        let (Some(a), Some(b)) = (self.list_position(&from), self.list_position(&key)) else {
+            return self.set_list_cursor(key);
+        };
+        let (lo, hi) = (a.min(b), a.max(b));
+        self.list_selection = self.listing.rows[lo..=hi]
+            .iter()
+            .map(|r| r.key.clone())
+            .collect();
+        self.list_cursor = Some(key);
+    }
+
+    fn toggle_list_row(&mut self, key: String) {
+        if !self.list_selection.remove(&key) {
+            self.list_selection.insert(key.clone());
+        }
+        self.list_anchor = Some(key.clone());
+        self.list_cursor = Some(key);
+    }
+
+    /// A click on a listing row, with the same modifiers as the process table.
+    fn click_list_row(&mut self, key: String, m: gpui::Modifiers) {
+        if m.shift {
+            self.extend_list_selection(key);
+        } else if m.platform || m.control {
+            self.toggle_list_row(key);
+        } else {
+            self.set_list_cursor(key);
+        }
+    }
+
+    /// Arrow keys on a listing move its cursor and select that row; Shift extends the range.
+    pub fn move_list_cursor(&mut self, nav: Nav, extend: bool) {
+        let rows = self.listing.rows.clone();
+        if rows.is_empty() {
+            return;
+        }
+        let last = rows.len() - 1;
+        let at = self
+            .list_cursor
+            .as_ref()
+            .and_then(|k| self.list_position(k));
+        let page = ((f32::from(
+            self.listing_scroll
+                .0
+                .borrow()
+                .base_handle
+                .bounds()
+                .size
+                .height,
+        ) / 30.) as usize)
+            .saturating_sub(1)
+            .max(1);
+        let target = match (at, nav) {
+            (None, Nav::Up | Nav::End) => last,
+            (None, _) => 0,
+            (Some(p), Nav::Up) => p.saturating_sub(1),
+            (Some(p), Nav::Down) => (p + 1).min(last),
+            (Some(p), Nav::PageUp) => p.saturating_sub(page),
+            (Some(p), Nav::PageDown) => (p + page).min(last),
+            (Some(_), Nav::Home) => 0,
+            (Some(_), Nav::End) => last,
+            _ => return,
+        };
+        let key = rows[target].key.clone();
+        if extend {
+            self.extend_list_selection(key);
+        } else {
+            self.set_list_cursor(key);
+        }
+        let (first, shown) = {
+            let state = self.listing_scroll.0.borrow();
+            let handle = &state.base_handle;
+            let top = (-f32::from(handle.offset().y) / 30.).max(0.);
+            let shown = (f32::from(handle.bounds().size.height) / 30.).floor();
+            (top.ceil() as usize, shown as usize)
+        };
+        if shown == 0 {
+            self.listing_scroll
+                .scroll_to_item(target, gpui::ScrollStrategy::Center);
+        } else if target < first {
+            self.listing_scroll
+                .scroll_to_item(target, gpui::ScrollStrategy::Top);
+        } else if target + 1 > first + shown.saturating_sub(1) {
+            self.listing_scroll
+                .scroll_to_item(target, gpui::ScrollStrategy::Bottom);
+        }
+    }
+
+    pub fn select_all_list(&mut self) {
+        self.list_selection = self.listing.rows.iter().map(|r| r.key.clone()).collect();
+    }
+
+    /// Esc with several listing rows selected: keep only the cursor row. Returns whether it did.
+    pub fn collapse_list_selection(&mut self) -> bool {
+        if self.list_selection.len() < 2 {
+            return false;
+        }
+        match self.list_cursor.clone() {
+            Some(key) => self.set_list_cursor(key),
+            None => self.clear_list_selection(),
+        }
+        true
+    }
+
+    /// Copy the selected listing rows, one line per row (tab-separated cells).
+    pub fn copy_list_rows(&mut self, cx: &mut Context<Self>) {
+        let rows = self.selected_list_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let n = rows.len();
+        let text = rows
+            .iter()
+            .map(|r| {
+                r.cells
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\t")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.notice = Some((
+            format!("Copied {n} {}", if n == 1 { "row" } else { "rows" }),
+            false,
+        ));
+        cx.notify();
     }
 
     /// The table id a listing page keeps its sort under.
@@ -244,13 +431,17 @@ impl OtmApp {
 
     pub fn rebuild_listing(&mut self) {
         use crate::tables::{SortKey as K, num, text};
-        let row =
-            |cells: Vec<String>, keys: Vec<K>, dim: bool, actions: Vec<ActionButton>| ListRow {
-                cells: cells.into_iter().map(SharedString::from).collect(),
-                keys,
-                dim,
-                actions,
-            };
+        let row = |key: String,
+                   cells: Vec<String>,
+                   keys: Vec<K>,
+                   dim: bool,
+                   actions: Vec<ActionButton>| ListRow {
+            key,
+            cells: cells.into_iter().map(SharedString::from).collect(),
+            keys,
+            dim,
+            actions,
+        };
         let (headers, rows): (Vec<Col>, Vec<ListRow>) = match self.page {
             Page::Users => {
                 let mut users: std::collections::HashMap<&str, (usize, f32, u64)> =
@@ -277,6 +468,7 @@ impl OtmApp {
                         .map(|(name, (count, cpu, memory))| {
                             let share = memory as f64 / total * 100.;
                             row(
+                                name.to_string(),
                                 vec![
                                     name.to_string(),
                                     count.to_string(),
@@ -318,6 +510,7 @@ impl OtmApp {
                         let state = if s.loaded { "Loaded" } else { "Not loaded" };
                         let file = s.file.display().to_string();
                         row(
+                            file.clone(),
                             vec![s.label.clone(), s.scope.into(), state.into(), file.clone()],
                             vec![
                                 K::text(&s.label),
@@ -347,6 +540,7 @@ impl OtmApp {
                         }
                         let state = if s.pid.is_some() { "Running" } else { "Idle" };
                         row(
+                            s.label.clone(),
                             vec![
                                 s.label.clone(),
                                 s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
@@ -377,6 +571,7 @@ impl OtmApp {
                     .iter()
                     .map(|c| {
                         row(
+                            format!("{} {} {}", c.pid, c.proto, c.endpoint),
                             vec![
                                 c.process.clone(),
                                 c.pid.to_string(),
@@ -420,6 +615,7 @@ impl OtmApp {
                             ]
                         };
                         row(
+                            path.clone(),
                             vec![
                                 a.name.clone(),
                                 a.version.clone(),
@@ -580,7 +776,11 @@ impl OtmApp {
             .when(!b.danger, |d| d.border_color(t.accent).text_color(t.accent))
             .hover(|h| h.bg(t.glass_hover))
             .child(b.label)
-            .on_click(cx.listener(move |this, _, _, cx| this.perform(action.clone(), cx)))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                // A button in a row acts on that row without also selecting it.
+                cx.stop_propagation();
+                this.perform(action.clone(), cx)
+            }))
     }
 
     pub fn render_listing(
@@ -609,6 +809,7 @@ impl OtmApp {
                             format!("{count} of {} shown", self.listing.total)
                         },
                     ))
+                    .children(self.bulk_actions(t, cx))
                     .child(div().flex_1())
                     .when(self.page != Page::Users, |d| {
                         d.child(
@@ -675,6 +876,180 @@ impl OtmApp {
             .when(!self.listing_loading && count == 0, |d| {
                 d.child(self.listing_empty(t, cx))
             })
+            .when_some(self.bulk_trash.clone(), |d, paths| {
+                d.child(self.trash_sheet(t, paths, cx))
+            })
+    }
+
+    /// Bulk buttons for two or more selected rows: each row's own action with the same label
+    /// (Enable, Disable, Restart, Stop) applied to all of them, plus Copy or Move to Trash.
+    fn bulk_actions(&self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let rows = self.selected_list_rows();
+        if rows.len() < 2 {
+            return vec![];
+        }
+        let n = rows.len();
+        let mut groups: Vec<(&'static str, bool, Vec<Action>)> = Vec::new();
+        for b in rows.iter().flat_map(|r| r.actions.iter()) {
+            if matches!(b.label, "Reveal" | "Uninstall" | "Move to Trash" | "Cancel") {
+                continue;
+            }
+            match groups.iter_mut().find(|g| g.0 == b.label) {
+                Some(g) => g.2.push(b.action.clone()),
+                None => groups.push((b.label, b.danger, vec![b.action.clone()])),
+            }
+        }
+        let noun = match self.page {
+            Page::Startup => "startup items",
+            Page::Services => "services",
+            _ => "items",
+        };
+        let mut out: Vec<AnyElement> = Vec::new();
+        for (i, (label, danger_btn, actions)) in groups.into_iter().enumerate() {
+            let count = actions.len();
+            let past = match label {
+                "Enable" => "Enabled",
+                "Disable" => "Disabled",
+                "Restart" => "Restarted",
+                "Stop" => "Stopped",
+                other => other,
+            };
+            let batch = Action::Batch {
+                what: format!("{past} {count} {noun}"),
+                actions,
+            };
+            out.push(
+                ui::pill(t, ("bulk", i), format!("{label} {count}"), false)
+                    .debug_selector(move || format!("bulk-{label}"))
+                    .flex_shrink_0()
+                    .ml_2()
+                    .when(danger_btn, |d| d.text_color(t.hot))
+                    .on_click(cx.listener(move |this, _, _, cx| this.perform(batch.clone(), cx)))
+                    .into_any_element(),
+            );
+        }
+        if self.page == Page::Apps {
+            let paths: Vec<PathBuf> = rows.iter().map(|r| PathBuf::from(&r.key)).collect();
+            out.push(
+                ui::pill(t, "bulk-trash", format!("Move {n} to Trash…"), false)
+                    .debug_selector(|| "bulk-trash".into())
+                    .flex_shrink_0()
+                    .ml_2()
+                    .text_color(t.hot)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.bulk_trash = Some(paths.clone());
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        if matches!(self.page, Page::Users | Page::Connections) {
+            out.push(
+                ui::pill(t, "bulk-copy", format!("Copy {n}"), false)
+                    .debug_selector(|| "bulk-copy".into())
+                    .flex_shrink_0()
+                    .ml_2()
+                    .on_click(cx.listener(|this, _, _, cx| this.copy_list_rows(cx)))
+                    .into_any_element(),
+            );
+        }
+        out
+    }
+
+    /// One confirmation for moving several apps to the Trash, naming them.
+    fn trash_sheet(
+        &self,
+        t: &Theme,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let names: Vec<String> = paths
+            .iter()
+            .map(|p| {
+                p.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        let mut shown = names.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
+        if names.len() > 6 {
+            shown.push_str(&format!(" and {} more", names.len() - 6));
+        }
+        let n = paths.len();
+        let trash = paths.clone();
+        div()
+            .id("trash-backdrop")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x00000052))
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .id("trash-sheet")
+                    .debug_selector(|| "trash-sheet".into())
+                    .w(px(400.))
+                    .p_5()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .rounded(px(16.))
+                    .bg(crate::theme::with_alpha(t.glass_strong, 0.98))
+                    .border_1()
+                    .border_color(t.highlight)
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!("Move {n} apps to the Trash?")),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(t.text_dim)
+                            .child(format!("{shown}. You can put them back from the Trash.")),
+                    )
+                    .child(
+                        div()
+                            .mt_3()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                ui::pill(t, "trash-cancel", "Cancel", true)
+                                    .debug_selector(|| "trash-cancel".into())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.bulk_trash = None;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                ui::pill(t, "trash-confirm", "Move to Trash", false)
+                                    .debug_selector(|| "trash-confirm".into())
+                                    .text_color(t.hot)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.bulk_trash = None;
+                                        let actions = trash
+                                            .iter()
+                                            .map(|p| Action::Trash(p.clone()))
+                                            .collect();
+                                        this.perform(
+                                            Action::Batch {
+                                                what: format!("Moved {n} apps to the Trash"),
+                                                actions,
+                                            },
+                                            cx,
+                                        );
+                                    })),
+                            ),
+                    ),
+            )
     }
 
     /// What an empty listing says: nothing matches the filter (with a way out), or nothing exists.
@@ -728,8 +1103,11 @@ impl OtmApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_actions = self.listing.rows.iter().any(|r| !r.actions.is_empty());
+        let selected = self.list_selection.contains(&r.key);
+        let key = r.key.clone();
         div()
             .id(("list-row", ix))
+            .debug_selector(move || format!("list-row-{ix}"))
             .w_full()
             .h(px(30.))
             .mx_2()
@@ -739,9 +1117,15 @@ impl OtmApp {
             .items_center()
             .rounded(px(8.))
             .text_sm()
-            .when(ix % 2 == 1, |d| d.bg(t.row_alt))
-            .hover(|h| h.bg(t.glass_hover))
-            .when(r.dim, |d| d.text_color(t.text_dim))
+            .when(ix % 2 == 1 && !selected, |d| d.bg(t.row_alt))
+            .when(selected, |d| d.bg(t.selection).text_color(gpui::white()))
+            .when(!selected, |d| d.hover(|h| h.bg(t.glass_hover)))
+            .when(r.dim && !selected, |d| d.text_color(t.text_dim))
+            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                this.click_list_row(key.clone(), ev.modifiers());
+                window.focus(&this.focus);
+                cx.notify();
+            }))
             .children(r.cells.iter().zip(widths).enumerate().map(|(i, (c, w))| {
                 let last = i + 1 == widths.len();
                 let header = self.listing.headers.get(i);
@@ -781,7 +1165,7 @@ impl OtmApp {
                     .id(("list-cell", ix * 16 + i))
                     .whitespace_nowrap()
                     .when(numeric, |d| d.text_right().font_family("Menlo").text_xs())
-                    .when(i > 0, |d| d.text_color(t.text_dim))
+                    .when(i > 0 && !selected, |d| d.text_color(t.text_dim))
                     .child(shown)
                     .when(cut, |d| d.tooltip(crate::ui::tip(full)))
             }))
