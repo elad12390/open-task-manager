@@ -8,6 +8,8 @@ mod demo;
 mod filter;
 mod filter_bar;
 mod icons;
+#[cfg(test)]
+mod listing_autocomplete_tests;
 mod menus;
 mod metrics;
 mod overview;
