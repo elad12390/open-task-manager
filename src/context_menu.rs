@@ -237,6 +237,17 @@ impl OtmApp {
         self.context_menu = None;
         match cmd {
             Cmd::Signal { pids, sig, verb } => {
+                if self.demo_mode {
+                    // Never signal a real process from the demo.
+                    let n = pids.len();
+                    self.demo_kill(&pids);
+                    self.notice = Some((
+                        format!("{verb} {n} process{}", if n == 1 { "" } else { "es" }),
+                        false,
+                    ));
+                    cx.notify();
+                    return;
+                }
                 let n = pids.len();
                 self.run_bg(
                     cx,
@@ -294,7 +305,8 @@ impl OtmApp {
             .p_1()
             .flex()
             .flex_col()
-            .bg(t.glass_strong)
+            // Near-opaque like a macOS menu, so the rows behind never compete with its text.
+            .bg(crate::theme::with_alpha(t.glass_strong, 0.97))
             .border_1()
             .border_color(t.highlight)
             .rounded(px(10.))

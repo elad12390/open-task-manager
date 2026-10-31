@@ -154,6 +154,11 @@ pub struct OtmApp {
     pub owner_bundles: std::collections::HashMap<String, String>,
     /// Right-click menu: the row it is for and where it opened.
     pub context_menu: Option<(crate::processes::RowId, gpui::Point<Pixels>)>,
+    /// `--demo`: fictional data and a scripted tour; nothing real is read or signalled.
+    pub demo_mode: bool,
+    pub demo_tick: u64,
+    pub demo_removed: Vec<u32>,
+    pub demo_caption: Option<String>,
 }
 
 impl OtmApp {
@@ -187,60 +192,63 @@ impl OtmApp {
         if std::env::var_os("OTM_BACKGROUND").is_none() {
             window.focus(&focus);
         }
+        let demo = std::env::var("OTM_DEMO").ok();
         let sampler = Arc::new(Mutex::new(Sampler::new()));
-        cx.spawn(async move |this, cx| {
-            loop {
-                let s = sampler.clone();
-                let started = std::time::Instant::now();
-                let snapshot = cx
-                    .background_executor()
-                    .spawn(async move { s.lock().unwrap().sample() })
-                    .await;
-                if std::env::var_os("OTM_DEBUG").is_some() {
-                    eprintln!(
-                        "sample: {} processes in {:?}",
-                        snapshot.processes.len(),
-                        started.elapsed()
-                    );
-                }
-                if this
-                    .update(cx, |app, cx| {
-                        app.history.push(&snapshot);
-                        if let Some(frames) = &mut app.recording {
-                            frames.push(Frame::from_snapshot(&snapshot));
-                        }
-                        app.snapshot = snapshot;
-                        app.rebuild_rows();
-                        app.request_icons(cx);
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                // Wait out the update interval in short steps so Pause and "Update Now" apply at once.
-                let mut waited = 0u64;
+        if demo.is_none() {
+            cx.spawn(async move |this, cx| {
                 loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(100))
+                    let s = sampler.clone();
+                    let started = std::time::Instant::now();
+                    let snapshot = cx
+                        .background_executor()
+                        .spawn(async move { s.lock().unwrap().sample() })
                         .await;
-                    waited += 100;
-                    let Ok((secs, paused, now)) = this.update(cx, |app, _| {
-                        (
-                            app.settings.refresh_secs,
-                            app.paused,
-                            std::mem::take(&mut app.update_now),
-                        )
-                    }) else {
-                        return;
-                    };
-                    if now || (!paused && waited >= secs * 1000) {
+                    if std::env::var_os("OTM_DEBUG").is_some() {
+                        eprintln!(
+                            "sample: {} processes in {:?}",
+                            snapshot.processes.len(),
+                            started.elapsed()
+                        );
+                    }
+                    if this
+                        .update(cx, |app, cx| {
+                            app.history.push(&snapshot);
+                            if let Some(frames) = &mut app.recording {
+                                frames.push(Frame::from_snapshot(&snapshot));
+                            }
+                            app.snapshot = snapshot;
+                            app.rebuild_rows();
+                            app.request_icons(cx);
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
                         break;
                     }
+                    // Wait out the update interval in short steps so Pause and "Update Now" apply at once.
+                    let mut waited = 0u64;
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(100))
+                            .await;
+                        waited += 100;
+                        let Ok((secs, paused, now)) = this.update(cx, |app, _| {
+                            (
+                                app.settings.refresh_secs,
+                                app.paused,
+                                std::mem::take(&mut app.update_now),
+                            )
+                        }) else {
+                            return;
+                        };
+                        if now || (!paused && waited >= secs * 1000) {
+                            break;
+                        }
+                    }
                 }
-            }
-        })
-        .detach();
+            })
+            .detach();
+        }
 
         let mut app = Self {
             snapshot: Snapshot::default(),
@@ -281,10 +289,19 @@ impl OtmApp {
             icons_requested: HashSet::new(),
             owner_bundles: Default::default(),
             context_menu: None,
+            demo_mode: false,
+            demo_tick: 0,
+            demo_removed: Vec::new(),
+            demo_caption: None,
         };
-        app.run_bg(cx, crate::sysops::system_info, |app, info, _| {
-            app.system = info
-        });
+        if let Some(scene) = demo {
+            app.demo_mode = true;
+            app.start_demo(scene, cx);
+        } else {
+            app.run_bg(cx, crate::sysops::system_info, |app, info, _| {
+                app.system = info
+            });
+        }
         if let Ok(which) = std::env::var("OTM_OPEN") {
             cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
@@ -593,5 +610,31 @@ impl Render for OtmApp {
             .text_color(t.text)
             .child(self.sidebar(&t, cx))
             .child(div().flex_1().h_full().min_w_0().child(content))
+            .when_some(self.demo_caption.clone(), |d, text| {
+                // Demo caption: a glass pill centred at the bottom of the window.
+                d.child(
+                    div()
+                        .absolute()
+                        .bottom(px(22.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .child(
+                            div()
+                                .px_4()
+                                .py_2()
+                                .rounded_full()
+                                .bg(gpui::rgba(0x0b1230d9))
+                                .border_1()
+                                .border_color(gpui::rgba(0xffffff33))
+                                .shadow_lg()
+                                .text_color(gpui::white())
+                                .text_base()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(text),
+                        ),
+                )
+            })
     }
 }

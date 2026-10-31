@@ -1372,7 +1372,9 @@ impl OtmApp {
                         if i == tree_col {
                             let toggle_key = toggle_key.clone();
                             let twisty_selector = twisty_selector.clone();
-                            cell.child(div().flex_shrink_0().w(px(depth as f32 * 14.)))
+                            // The label keeps its width; only the note after it truncates.
+                            cell.overflow_hidden()
+                                .child(div().flex_shrink_0().w(px(depth as f32 * 14.)))
                                 .child(
                                     div()
                                         .id(("group-twisty", ix))
@@ -1396,7 +1398,7 @@ impl OtmApp {
                                         )),
                                 )
                                 .child(self.icon_slot(bundle.as_deref()))
-                                .child(div().truncate().child(label.clone()))
+                                .child(div().flex_shrink_0().child(label.clone()))
                                 .child(
                                     div()
                                         .flex_shrink_0()
@@ -1419,6 +1421,7 @@ impl OtmApp {
                                 .when_some(note, |d, note| {
                                     d.child(
                                         div()
+                                            .min_w_0()
                                             .truncate()
                                             .text_xs()
                                             .font_weight(FontWeight::NORMAL)

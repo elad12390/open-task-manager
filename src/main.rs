@@ -2,6 +2,7 @@ mod app;
 mod categories;
 mod columns;
 mod context_menu;
+mod demo;
 mod icons;
 mod menus;
 mod metrics;
@@ -24,6 +25,22 @@ use gpui::{
 };
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--demo") {
+        let scene = args
+            .get(i + 1)
+            .cloned()
+            .unwrap_or_else(|| "overview".into());
+        if !demo::SCENES.contains(&scene.as_str()) {
+            eprintln!(
+                "unknown demo scene {scene:?}; choose one of {:?}",
+                demo::SCENES
+            );
+            std::process::exit(2);
+        }
+        // SAFETY: single-threaded, before the app or any other thread starts.
+        unsafe { std::env::set_var("OTM_DEMO", scene) };
+    }
     if std::env::args().any(|a| a == "--selftest") {
         std::process::exit(selftest::run());
     }

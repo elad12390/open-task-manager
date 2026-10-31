@@ -16,6 +16,12 @@
   <a href="https://elad12390.github.io/open-task-manager/"><img src="https://img.shields.io/badge/website-online-5FF5E0" alt="Website"></a>
 </p>
 
+<p align="center">
+  <img src="assets/demo/overview.gif" width="760" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
+</p>
+
+<sub>All recordings use the app's demo mode, which shows a fictional Mac.</sub>
+
 ---
 
 ## Install
@@ -67,6 +73,44 @@ cargo run --release              # run it
 - A complete macOS menu bar with an **Update** menu (every 1/2/5/10 s, pause, update now).
 - Liquid-Glass styling that follows light/dark mode, with text size and high-contrast options.
 
+### A real process tree
+
+launchd at the root, with the operating system's processes and yours in separate branches. Folding a branch folds
+everything inside it; unfolding opens one level at a time.
+
+<img src="assets/demo/process-tree.gif" width="760" alt="Folding and unfolding the process tree">
+
+### Memory per app
+
+Σ adds up an app and every helper it runs, in the app grouping and on every branch of the tree.
+
+<img src="assets/demo/memory.gif" width="760" alt="Memory summed per app and per branch">
+
+### Your columns
+
+Show and hide columns, drag headers to reorder, drag edges to resize, and scroll sideways. The layout is saved.
+
+<img src="assets/demo/columns.gif" width="760" alt="Showing, reordering and resizing columns">
+
+### Right-click actions
+
+Quit, force quit, suspend, reveal in Finder, show connections or copy details, for one process or a whole app.
+
+<img src="assets/demo/context-menu.gif" width="760" alt="The right-click menu and force quitting a process">
+
+### Keyboard first
+
+<kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>←</kbd> <kbd>→</kbd> to fold and unfold, <kbd>Space</kbd> to toggle,
+<kbd>⌥</kbd><kbd>→</kbd> to open a whole branch, <kbd>Home</kbd> / <kbd>End</kbd> to jump.
+
+<img src="assets/demo/keyboard.gif" width="760" alt="Navigating the process tree with the keyboard">
+
+### Everything else
+
+Startup items, services, connections, installed apps, disk space, power, benchmarks, users and settings.
+
+<img src="assets/demo/pages.gif" width="760" alt="A tour of the other pages">
+
 ## Privacy
 
 Open Task Manager reads system information with macOS APIs and standard tools (`ps`, `lsof`, `launchctl`, `pmset`,
@@ -86,6 +130,15 @@ cargo run -- --selftest          # end-to-end checks against the live system (se
 moves a throwaway `.app` from `~/Applications` to the Trash, and quits throwaway `sleep` processes. Add `--bench`
 to run the benchmarks and `--scan` to run a home-folder disk scan.
 
+### Demo mode and the GIFs
+
+`otm --demo <scene>` shows a fictional Mac and plays a scripted tour, then quits. Nothing is read from your system
+and no real process is ever signalled. Scenes: `overview`, `process-tree`, `memory`, `columns`, `context-menu`,
+`keyboard`, `pages`.
+
+`scripts/record_demos.sh [scene…]` records the scenes into `assets/demo/*.gif`. It needs `ffmpeg`, optionally
+`gifsicle`, and the Screen Recording permission for your terminal. Each scene opens a window that does not take focus.
+
 ### Project layout
 
 | Path | What it is |
@@ -99,7 +152,9 @@ to run the benchmarks and `--scan` to run a home-folder disk scan.
 | `src/metrics.rs`, `src/sysops.rs` | System sampling and guarded system actions |
 | `src/icons.rs`, `src/app_icon.js` | App-icon rendering cache |
 | `src/ui_tests.rs`, `src/selftest.rs` | Tests |
+| `src/demo.rs` | Demo mode: fictional data and scripted tours |
 | `scripts/package.sh` | Builds the `.app` and DMG |
+| `scripts/record_demos.sh` | Records the demo GIFs |
 | `scripts/make_icon.py` | Rebuilds the app icon from `assets/AppIcon-raw.png` |
 | `site/` | The landing page (GitHub Pages) |
 

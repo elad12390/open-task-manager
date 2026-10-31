@@ -3,7 +3,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ["site/**", "assets/AppIcon.png", ".github/workflows/pages.yml"]
+    paths: ["site/**", "assets/AppIcon.png", "assets/demo/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -23,8 +23,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Add the app icon to the site
-        run: cp assets/AppIcon.png site/icon.png
+      - name: Add the app icon and demo GIFs to the site
+        run: |
+          cp assets/AppIcon.png site/icon.png
+          mkdir -p site/demo
+          cp assets/demo/*.gif site/demo/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

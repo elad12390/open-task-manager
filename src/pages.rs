@@ -98,6 +98,11 @@ impl OtmApp {
     }
 
     pub fn load_page(&mut self, cx: &mut Context<Self>) {
+        if self.demo_mode {
+            // Demo mode shows its fictional data only; nothing is read from this Mac.
+            self.rebuild_listing();
+            return;
+        }
         match self.page {
             Page::Startup => self.run_bg(cx, sysops::startup_items, |app, v, _| {
                 app.startup = v;

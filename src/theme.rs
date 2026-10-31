@@ -2,7 +2,7 @@ use gpui::{Hsla, Rgba, WindowAppearance, rgba};
 
 use crate::settings::{Appearance, Glass, Settings};
 
-fn with_alpha(c: Rgba, a: f32) -> Rgba {
+pub fn with_alpha(c: Rgba, a: f32) -> Rgba {
     Rgba { a, ..c }
 }
 

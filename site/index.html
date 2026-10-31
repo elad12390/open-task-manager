@@ -60,6 +60,16 @@
       border: 1px solid var(--line); background: var(--card);
     }
     .privacy { text-align: center; max-width: 680px; margin: 0 auto; color: var(--dim); }
+    .shot {
+      display: block; width: 100%; max-width: 900px; margin: 40px auto 0; border-radius: 16px;
+      border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(10,20,60,.28);
+    }
+    .shot-note { text-align: center; color: var(--dim); font-size: .85rem; margin-top: 10px; }
+    .tour { display: grid; gap: 48px; }
+    .tour figure { margin: 0; }
+    .tour img { width: 100%; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(10,20,60,.22); }
+    .tour figcaption { margin-top: 12px; text-align: center; color: var(--dim); }
+    .tour figcaption strong { color: var(--ink); display: block; font-size: 1.1rem; margin-bottom: 2px; }
     footer { text-align: center; color: var(--dim); font-size: .9rem; padding: 48px 24px 64px; }
     footer a { color: inherit; }
   </style>
@@ -82,6 +92,8 @@
         <a class="btn" href="https://github.com/elad12390/open-task-manager">View source on GitHub</a>
       </div>
       <p class="note">macOS 13 or later · Apple silicon and Intel · Apache-2.0</p>
+      <img class="shot" src="demo/overview.gif" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
+      <p class="shot-note">Recorded in the app's demo mode, which shows a fictional Mac.</p>
     </section>
 
     <h2>Everything you expect from a task manager — and more</h2>
@@ -108,6 +120,22 @@
         <p>A flight recorder you can replay, and CPU, memory and uncached disk benchmarks.</p></div>
       <div class="card"><div class="glyph">◐</div><h3>Native and light</h3>
         <p>Rust and GPUI, Liquid-Glass styling, light and dark mode, a popout mini monitor and a screensaver.</p></div>
+    </div>
+
+    <h2>See it in action</h2>
+    <div class="tour">
+      <figure><img loading="lazy" src="demo/process-tree.gif" alt="Folding and unfolding the process tree">
+        <figcaption><strong>A real process tree</strong>Folding folds everything inside; unfolding opens one level at a time.</figcaption></figure>
+      <figure><img loading="lazy" src="demo/memory.gif" alt="Memory summed per app and per branch">
+        <figcaption><strong>Memory per app</strong>Σ adds up an app and every helper it runs.</figcaption></figure>
+      <figure><img loading="lazy" src="demo/columns.gif" alt="Showing, reordering and resizing columns">
+        <figcaption><strong>Your columns</strong>Show, hide, reorder, resize and scroll sideways. The layout is saved.</figcaption></figure>
+      <figure><img loading="lazy" src="demo/context-menu.gif" alt="The right-click menu and force quitting a process">
+        <figcaption><strong>Right-click actions</strong>Act on one process or a whole app at once.</figcaption></figure>
+      <figure><img loading="lazy" src="demo/keyboard.gif" alt="Navigating the process tree with the keyboard">
+        <figcaption><strong>Keyboard first</strong>Move, fold, unfold and jump without touching the mouse.</figcaption></figure>
+      <figure><img loading="lazy" src="demo/pages.gif" alt="A tour of the other pages">
+        <figcaption><strong>Everything else</strong>Startup items, services, connections, apps, disk space, power, benchmarks and more.</figcaption></figure>
     </div>
 
     <h2>Private by design</h2>
