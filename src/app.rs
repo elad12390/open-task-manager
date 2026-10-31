@@ -8,8 +8,8 @@ use std::{
 
 use gpui::{
     Context, FocusHandle, FontWeight, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent,
-    Pixels, Render, Rgba, UniformListScrollHandle, Window, div, linear_color_stop, linear_gradient,
-    prelude::*, px,
+    Pixels, Render, Rgba, UniformListScrollHandle, Window, div, img, linear_color_stop,
+    linear_gradient, prelude::*, px,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ pub enum Page {
 }
 
 impl Page {
-    const SECTIONS: [(&'static str, &'static [Page]); 3] = [
+    pub const SECTIONS: [(&'static str, &'static [Page]); 3] = [
         (
             "MONITOR",
             &[
@@ -79,20 +79,20 @@ impl Page {
         }
     }
 
-    fn glyph(self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
-            Page::Overview => "◎",
-            Page::Processes => "☰",
-            Page::Users => "◉",
-            Page::Startup => "⏻",
-            Page::Services => "⚙",
-            Page::Connections => "⇅",
-            Page::Apps => "▣",
-            Page::Disk => "◔",
-            Page::Power => "⚡",
-            Page::Benchmarks => "⏱",
-            Page::Recorder => "●",
-            Page::Settings => "✦",
+            Page::Overview => "gauge",
+            Page::Processes => "list",
+            Page::Users => "users",
+            Page::Startup => "power",
+            Page::Services => "settings",
+            Page::Connections => "network",
+            Page::Apps => "app-window",
+            Page::Disk => "hard-drive",
+            Page::Power => "zap",
+            Page::Benchmarks => "timer",
+            Page::Recorder => "circle-dot",
+            Page::Settings => "sliders-horizontal",
         }
     }
 
@@ -705,24 +705,39 @@ impl OtmApp {
                     .px_2()
                     .pb_2()
                     .flex()
-                    .flex_col()
+                    .flex_row()
+                    .items_start()
+                    .gap_2()
+                    .child(
+                        img(crate::assets::logo())
+                            .size(px(28.))
+                            .flex_none()
+                            .debug_selector(|| "app-logo".into()),
+                    )
                     .child(
                         div()
-                            .text_base()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(t.text)
-                            .child("Open Task Manager"),
-                    )
-                    .when_some(t.holiday, |d, h| {
-                        d.child(
-                            div()
-                                .text_xs()
-                                .text_color(t.accent)
-                                .debug_selector(move || format!("sidebar-greeting-{}", h.name()))
-                                .child(h.greeting()),
-                        )
-                    })
-                    .child(div().text_xs().text_color(t.text_dim).child(s.host.clone())),
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(t.text)
+                                    .child("Open Task Manager"),
+                            )
+                            .when_some(t.holiday, |d, h| {
+                                d.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(t.accent)
+                                        .debug_selector(move || {
+                                            format!("sidebar-greeting-{}", h.name())
+                                        })
+                                        .child(h.greeting()),
+                                )
+                            })
+                            .child(div().text_xs().text_color(t.text_dim).child(s.host.clone())),
+                    ),
             )
             .children(Page::SECTIONS.iter().map(|(title, pages)| {
                 div()
@@ -756,7 +771,11 @@ impl OtmApp {
                             .when(!active, |d| {
                                 d.text_color(t.text).hover(|h| h.bg(t.glass_hover))
                             })
-                            .child(div().w(px(16.)).child(page.glyph()))
+                            .child(div().w(px(16.)).child(ui::icon(
+                                page.icon(),
+                                15.,
+                                if active { t.accent } else { t.text },
+                            )))
                             .child(page.label())
                             .when(page == Page::Recorder && self.recording.is_some(), |d| {
                                 d.child(div().size(px(7.)).rounded_full().bg(t.hot))

@@ -737,7 +737,7 @@ impl OtmApp {
                                     gpui::rgb(0x1e7b34)
                                 })
                                 .text_color(gpui::white())
-                                .child(crate::filter_bar::notice_text(&msg, err)),
+                                .child(crate::filter_bar::notice(&msg, err, gpui::white())),
                         )
                     }),
             )
@@ -801,7 +801,7 @@ impl OtmApp {
                     .when(self.page != Page::Users, |d| {
                         d.child(
                             div().mb_2().mr_4().child(
-                                ui::pill(t, "refresh", "↻ Refresh", false)
+                                ui::pill_icon(t, "refresh", "refresh-cw", "Refresh", false)
                                     .on_click(cx.listener(|this, _, _, cx| this.load_page(cx))),
                             ),
                         )
@@ -1640,14 +1640,14 @@ impl OtmApp {
                 .gap_2()
                 .items_center()
                 .child(match recording {
-                    None => ui::pill(t, "rec", "● Start recording", false).on_click(cx.listener(
-                        |this, _, _, cx| {
+                    None => ui::pill_icon(t, "rec", "circle", "Start recording", false).on_click(
+                        cx.listener(|this, _, _, cx| {
                             this.recording = Some(Vec::new());
                             cx.notify();
-                        },
-                    )),
-                    Some(_) => ui::pill(t, "rec", "■ Stop and save", true).on_click(cx.listener(
-                        |this, _, _, cx| {
+                        }),
+                    ),
+                    Some(_) => ui::pill_icon(t, "rec", "square", "Stop and save", true).on_click(
+                        cx.listener(|this, _, _, cx| {
                             let frames = this.recording.take().unwrap_or_default();
                             this.notice = Some(match recorder::save(frames) {
                                 Ok(p) => (
@@ -1661,8 +1661,8 @@ impl OtmApp {
                             });
                             this.recordings = recorder::list();
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 })
                 .when_some(recording, |d, n| {
                     d.child(

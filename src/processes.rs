@@ -1203,9 +1203,12 @@ impl OtmApp {
         let count = self.snapshot.processes.len();
         let targets = self.selected_pids();
         let subtitle = match &self.notice {
-            Some((msg, err)) => div()
-                .text_color(if *err { t.hot } else { t.good })
-                .child(crate::filter_bar::notice_text(msg, *err)),
+            Some((msg, err)) => {
+                let color = if *err { t.hot } else { t.good };
+                div()
+                    .text_color(color)
+                    .child(crate::filter_bar::notice(msg, *err, color))
+            }
             None if self.filter_active() => div().text_color(t.text_dim).child(format!(
                 "{} of {count} processes match · Esc clears",
                 self.match_count
@@ -1271,7 +1274,7 @@ impl OtmApp {
                             .tooltip(ui::tip("Stop the selected processes at once (asks first)")),
                     )
                     .child(
-                        ui::pill(t, "columns-btn", "Columns ▾", self.column_menu)
+                        ui::pill_menu(t, "columns-btn", "Columns", self.column_menu)
                             .flex_shrink_0()
                             .debug_selector(|| "columns-btn".into())
                             .on_mouse_down(
@@ -1301,10 +1304,10 @@ impl OtmApp {
                             .relative()
                             .flex_shrink_0()
                             .child(
-                                ui::pill(
+                                ui::pill_menu(
                                     t,
                                     "group-btn",
-                                    format!("Group: {} ▾", self.layout.group_by.label()),
+                                    format!("Group: {}", self.layout.group_by.label()),
                                     self.group_menu,
                                 )
                                 .debug_selector(|| "group-btn".into())
@@ -1370,8 +1373,7 @@ impl OtmApp {
                         div()
                             .w(px(12.))
                             .text_xs()
-                            .text_color(t.accent)
-                            .child(if current { "✓" } else { "" }),
+                            .children(current.then(|| ui::icon("check", 11., t.accent))),
                     )
                     .child(g.label())
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -1473,7 +1475,7 @@ impl OtmApp {
                             .when(c.visible, |d| d.bg(t.selection).text_color(gpui::white()))
                             .text_xs()
                             .cursor_pointer()
-                            .child(if c.visible { "✓" } else { "" })
+                            .children(c.visible.then(|| ui::icon("check", 11., gpui::white())))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.layout.toggle(id);
                                 this.layout_changed(cx);
@@ -1491,18 +1493,20 @@ impl OtmApp {
                                 this.layout_changed(cx);
                             })),
                     )
-                    .child(arrow(t, ("up", i), "↑", i > 0).on_click(cx.listener(
+                    .child(arrow(t, ("up", i), "arrow-up", i > 0).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.layout.shift(id, -1);
                             this.layout_changed(cx);
                         },
                     )))
-                    .child(arrow(t, ("down", i), "↓", !last).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.layout.shift(id, 1);
-                            this.layout_changed(cx);
-                        },
-                    )))
+                    .child(
+                        arrow(t, ("down", i), "arrow-down", !last).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.layout.shift(id, 1);
+                                this.layout_changed(cx);
+                            },
+                        )),
+                    )
             }))
             .child(
                 div()
@@ -1541,13 +1545,14 @@ impl OtmApp {
                 let id = c.id;
                 let width = c.width;
                 let sorted = self.layout.sort == id;
-                let arrow = if !sorted {
-                    ""
-                } else if self.layout.descending {
-                    " ↓"
-                } else {
-                    " ↑"
-                };
+                let sort_icon = sorted.then(|| {
+                    let name = if self.layout.descending {
+                        "arrow-down"
+                    } else {
+                        "arrow-up"
+                    };
+                    ui::icon(name, 10., t.accent)
+                });
                 div()
                     .id(("header", index))
                     .debug_selector(|| format!("header-{id:?}"))
@@ -1563,12 +1568,8 @@ impl OtmApp {
                     .when(sorted, |d| d.text_color(t.accent))
                     .hover(|h| h.bg(t.glass_hover))
                     .rounded(px(6.))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(format!("{}{arrow}", id.title())),
-                    )
+                    .child(div().min_w_0().truncate().child(id.title()))
+                    .children(sort_icon.map(|icon| div().flex_none().pl_1().child(icon)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.layout.sort_by(id);
                         this.layout_changed(cx);
@@ -1691,7 +1692,19 @@ impl OtmApp {
                                         } else {
                                             t.accent
                                         })
-                                        .child(if collapsed { "▸" } else { "▾" })
+                                        .child(ui::icon(
+                                            if collapsed {
+                                                "chevron-right"
+                                            } else {
+                                                "chevron-down"
+                                            },
+                                            10.,
+                                            if selected {
+                                                gpui::white()
+                                            } else {
+                                                t.accent.into()
+                                            },
+                                        ))
                                         .on_click(cx.listener(
                                             move |this, ev: &gpui::ClickEvent, _, cx| {
                                                 cx.stop_propagation();
@@ -1847,7 +1860,19 @@ impl OtmApp {
                                             } else {
                                                 t.accent
                                             })
-                                            .child(if collapsed { "▸" } else { "▾" })
+                                            .child(ui::icon(
+                                                if collapsed {
+                                                    "chevron-right"
+                                                } else {
+                                                    "chevron-down"
+                                                },
+                                                10.,
+                                                if selected {
+                                                    gpui::white()
+                                                } else {
+                                                    t.accent.into()
+                                                },
+                                            ))
                                             .on_click(cx.listener(
                                                 move |this, ev: &gpui::ClickEvent, _, cx| {
                                                     cx.stop_propagation();
@@ -2071,7 +2096,7 @@ impl OtmApp {
 fn arrow(
     t: &Theme,
     id: (&'static str, usize),
-    glyph: &'static str,
+    icon: &'static str,
     enabled: bool,
 ) -> gpui::Stateful<gpui::Div> {
     div()
@@ -2081,12 +2106,12 @@ fn arrow(
         .items_center()
         .justify_center()
         .rounded(px(6.))
-        .text_xs()
         .when(enabled, |d| {
-            d.text_color(t.text_dim)
-                .cursor_pointer()
-                .hover(|h| h.bg(t.glass_strong))
+            d.cursor_pointer().hover(|h| h.bg(t.glass_strong))
         })
-        .when(!enabled, |d| d.text_color(t.text_faint))
-        .child(glyph)
+        .child(ui::icon(
+            icon,
+            11.,
+            if enabled { t.text_dim } else { t.text_faint },
+        ))
 }

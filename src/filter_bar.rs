@@ -3,8 +3,8 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Context, CursorStyle, FontWeight, MouseButton, Rgba, Stateful, anchored, deferred,
-    div, prelude::*, px, rgb,
+    AnyElement, Context, CursorStyle, FontWeight, Hsla, MouseButton, Rgba, Stateful, anchored,
+    deferred, div, prelude::*, px, rgb,
 };
 
 use crate::{
@@ -19,8 +19,18 @@ const NOTICE_FOR: Duration = Duration::from_secs(5);
 const ERROR_FOR: Duration = Duration::from_secs(15);
 
 /// A notice with a symbol as well as its colour, so success and failure differ without colour.
-pub fn notice_text(msg: &str, err: bool) -> String {
-    format!("{} {msg}", if err { "⚠" } else { "✓" })
+pub fn notice(msg: &str, err: bool, color: impl Into<Hsla>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(crate::ui::icon(
+            if err { "triangle-alert" } else { "check" },
+            13.,
+            color,
+        ))
+        .child(msg.to_string())
 }
 
 pub fn kind_color(k: Kind) -> Rgba {
@@ -315,7 +325,7 @@ impl OtmApp {
                     .cursor_pointer()
                     .hover(|h| h.bg(with_alpha(c, 0.3)).text_color(t.text))
                     .tooltip(crate::ui::tip("Remove this filter"))
-                    .child("×")
+                    .child(crate::ui::icon("x", 12., t.text_dim))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
@@ -401,13 +411,11 @@ impl OtmApp {
                             cx.notify();
                         }),
                     )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .pl_1()
-                            .text_color(if focused { t.accent } else { t.text_faint })
-                            .child("⌕"),
-                    )
+                    .child(div().flex_shrink_0().pl_1().child(crate::ui::icon(
+                        "search",
+                        14.,
+                        if focused { t.accent } else { t.text_faint },
+                    )))
                     .children(
                         self.active_chips()
                             .iter()
@@ -450,8 +458,7 @@ impl OtmApp {
                                 .text_xs()
                                 .text_color(t.text_dim)
                                 .cursor_pointer()
-                                .hover(|h| h.text_color(t.text))
-                                .child("✕")
+                                .child(crate::ui::icon("x", 12., t.text_dim))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _, _, cx| {

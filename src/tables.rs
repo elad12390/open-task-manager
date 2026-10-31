@@ -147,11 +147,6 @@ impl OtmApp {
             .text_color(t.text_dim)
             .children(cols.iter().copied().enumerate().map(|(i, c)| {
                 let active = sort.filter(|s| s.0 == i);
-                let arrow = match active {
-                    Some((_, true)) => " ↓",
-                    Some(_) => " ↑",
-                    None => "",
-                };
                 let last = last_fills && i + 1 == cols.len();
                 cell(last, c.width)
                     .id(SharedString::from(format!("sort-{table}-{i}")))
@@ -164,7 +159,14 @@ impl OtmApp {
                     .cursor_pointer()
                     .hover(|h| h.bg(t.glass_hover))
                     .when(active.is_some(), |d| d.text_color(t.accent))
-                    .child(format!("{}{arrow}", c.title))
+                    .child(c.title)
+                    .children(active.map(|(_, descending)| {
+                        let name = if descending { "arrow-down" } else { "arrow-up" };
+                        div()
+                            .flex_none()
+                            .pl_1()
+                            .child(crate::ui::icon(name, 10., t.accent))
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_sort(table, i, c.numeric);
                         this.rebuild_listing();

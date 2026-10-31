@@ -1,6 +1,31 @@
-use gpui::{Div, FontWeight, Hsla, Stateful, div, prelude::*, px};
+use gpui::{Div, FontWeight, Hsla, Stateful, Svg, div, prelude::*, px, svg};
 
 use crate::theme::Theme;
+
+/// A Lucide icon from `assets/icons/<name>.svg`, drawn in `color` at `size` px square.
+pub fn icon(name: &'static str, size: f32, color: impl Into<Hsla>) -> Svg {
+    svg()
+        .path(format!("icons/{name}.svg"))
+        .size(px(size))
+        .flex_none()
+        .text_color(color)
+}
+
+/// An icon with text beside it, on one line.
+pub fn icon_text(
+    name: &'static str,
+    size: f32,
+    color: impl Into<Hsla>,
+    text: impl Into<gpui::SharedString>,
+) -> Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(icon(name, size, color))
+        .child(text.into())
+}
 
 pub fn glass(t: &Theme) -> Div {
     div()
@@ -14,7 +39,7 @@ pub fn glass(t: &Theme) -> Div {
 pub fn pill(
     t: &Theme,
     id: impl Into<gpui::ElementId>,
-    label: impl Into<gpui::SharedString>,
+    label: impl IntoElement,
     active: bool,
 ) -> Stateful<Div> {
     div()
@@ -29,7 +54,52 @@ pub fn pill(
         .when(!active, |d| {
             d.text_color(t.text).hover(|s| s.bg(t.glass_hover))
         })
-        .child(label.into())
+        .child(label)
+}
+
+/// A [`pill`] with an icon before its label.
+pub fn pill_icon(
+    t: &Theme,
+    id: impl Into<gpui::ElementId>,
+    name: &'static str,
+    label: impl Into<gpui::SharedString>,
+    active: bool,
+) -> Stateful<Div> {
+    let color = if active { gpui::white() } else { t.text.into() };
+    pill(
+        t,
+        id,
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .child(icon(name, 11., color))
+            .child(label.into()),
+        active,
+    )
+}
+
+/// A [`pill`] that opens a menu: its label followed by a chevron.
+pub fn pill_menu(
+    t: &Theme,
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<gpui::SharedString>,
+    active: bool,
+) -> Stateful<Div> {
+    let color = if active { gpui::white() } else { t.text.into() };
+    pill(
+        t,
+        id,
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .child(label.into())
+            .child(icon("chevron-down", 10., color)),
+        active,
+    )
 }
 
 pub fn segmented(t: &Theme) -> Div {

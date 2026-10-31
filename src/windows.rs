@@ -78,7 +78,11 @@ impl Render for Saver {
             s.memory_used as f32 / s.memory_total as f32 * 100.
         };
         let net_max = h.net_down.iter().copied().fold(1024., f32::max);
-        let band = |label: &'static str, value: String, values: Vec<f32>, max: f32, color: u32| {
+        let band = |label: &'static str,
+                    value: gpui::AnyElement,
+                    values: Vec<f32>,
+                    max: f32,
+                    color: u32| {
             div()
                 .flex_1()
                 .flex()
@@ -150,21 +154,37 @@ impl Render for Saver {
             )
             .child(band(
                 "CPU",
-                crate::metrics::fmt_pct(s.cpu),
+                crate::metrics::fmt_pct(s.cpu).into_any_element(),
                 h.cpu.iter().copied().collect(),
                 100.,
                 0x5ac8faff,
             ))
             .child(band(
                 "MEMORY",
-                crate::metrics::fmt_pct(mem),
+                crate::metrics::fmt_pct(mem).into_any_element(),
                 h.memory.iter().copied().collect(),
                 100.,
                 0xbf5af2ff,
             ))
             .child(band(
                 "NETWORK",
-                format!("↓ {}/s  ↑ {}/s", fmt_bytes(s.net_down), fmt_bytes(s.net_up)),
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_3()
+                    .child(ui::icon_text(
+                        "arrow-down",
+                        22.,
+                        gpui::Hsla::from(rgba(0x30d158ff)),
+                        format!("{}/s", fmt_bytes(s.net_down)),
+                    ))
+                    .child(ui::icon_text(
+                        "arrow-up",
+                        22.,
+                        gpui::Hsla::from(rgba(0x30d158ff)),
+                        format!("{}/s", fmt_bytes(s.net_up)),
+                    ))
+                    .into_any_element(),
                 h.net_down.iter().copied().collect(),
                 net_max,
                 0x30d158ff,
@@ -293,11 +313,24 @@ impl Render for Popout {
                             .justify_between()
                             .text_xs()
                             .child(div().text_color(t.text_dim).child("Network"))
-                            .child(format!(
-                                "↓ {}/s  ↑ {}/s",
-                                fmt_bytes(s.net_down),
-                                fmt_bytes(s.net_up)
-                            )),
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_2()
+                                    .child(ui::icon_text(
+                                        "arrow-down",
+                                        11.,
+                                        t.text,
+                                        format!("{}/s", fmt_bytes(s.net_down)),
+                                    ))
+                                    .child(ui::icon_text(
+                                        "arrow-up",
+                                        11.,
+                                        t.text,
+                                        format!("{}/s", fmt_bytes(s.net_up)),
+                                    )),
+                            ),
                     ),
             )
     }
