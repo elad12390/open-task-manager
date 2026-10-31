@@ -322,9 +322,21 @@ fn keyboard_navigation(cx: &mut TestAppContext) {
     });
     let before = state(cx).2.len();
     key(cx, "left");
-    let folded = state(cx).2.len();
+    let folded_rows = state(cx).2;
+    let folded = folded_rows.len();
     println!("left on the section -> folded, {before} -> {folded} rows");
-    assert!(folded < before / 2);
+    // Folded: fewer rows, and nothing inside the section follows it (independent of how many
+    // processes this Mac happens to run).
+    assert!(folded < before);
+    let at = folded_rows
+        .iter()
+        .position(|r| r.0 == RowId::Group("split:0".into()))
+        .unwrap();
+    assert!(
+        folded_rows
+            .get(at + 1)
+            .is_none_or(|next| next.1 <= folded_rows[at].1)
+    );
     key(cx, "right");
     let one_level = state(cx).2.len();
     assert!(
@@ -796,7 +808,8 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     cx.run_until_parked();
     view.update(cx, |app, cx| {
         app.layout.group_by = crate::columns::GroupBy::None;
-        app.query = "sleep".into();
+        // Only the disposable process, whatever else is running.
+        app.query = pid.to_string();
         app.rebuild_rows();
         cx.notify();
     });
