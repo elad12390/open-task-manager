@@ -132,12 +132,12 @@ pub struct Suggestion {
 /// `cpu>5`, `cpu 5`, `mem>500`, `mem > 1.5g`, `memory>200mb`: a numeric chip, if `text` is one.
 pub fn parse_numeric(text: &str) -> Option<Chip> {
     let t = text.trim().to_lowercase();
-    let (kind, rest) = if let Some(r) = t.strip_prefix("cpu") {
-        (Kind::Cpu, r)
-    } else if let Some(r) = t.strip_prefix("memory").or_else(|| t.strip_prefix("mem")) {
-        (Kind::Memory, r)
-    } else {
-        return None;
+    let (kind, rest) = match t.strip_prefix("cpu") {
+        Some(r) => (Kind::Cpu, r),
+        None => (
+            Kind::Memory,
+            t.strip_prefix("memory").or_else(|| t.strip_prefix("mem"))?,
+        ),
     };
     let rest = rest.trim_start_matches([' ', '>', ':', '=']).trim();
     let digits: String = rest
