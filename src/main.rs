@@ -13,6 +13,8 @@ mod icons;
 mod listing_autocomplete_tests;
 mod menus;
 mod metrics;
+#[cfg(test)]
+mod multiselect_tests;
 mod overview;
 mod pages;
 mod processes;

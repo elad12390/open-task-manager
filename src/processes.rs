@@ -10,11 +10,10 @@ use gpui::{
 };
 
 use crate::{
-    app::{OtmApp, Resize},
+    app::{OtmApp, Page, Resize},
     columns::{ColumnId, GroupBy, TableLayout},
     filter::Filter,
     metrics::{ProcessInfo, fmt_bytes},
-    pages::Action,
     scrollbar::{self, Axis},
     theme::Theme,
     ui,
@@ -1010,17 +1009,135 @@ impl OtmApp {
         self.rebuild_rows();
     }
 
-    /// Put the cursor on a row (process or group). `selected` follows it for process actions.
+    /// Put the cursor on a row (process or group) and select just that row. A group selects no
+    /// process, so it clears the selection.
     pub fn set_cursor(&mut self, id: Option<RowId>) {
         self.selected = match &id {
             Some(RowId::Pid(pid)) => Some(*pid),
             _ => None,
         };
+        self.selection = self.selected.into_iter().collect();
+        self.anchor = id.clone();
         self.cursor = id;
     }
 
-    /// Apply a keyboard move: update the cursor, fold/unfold, and scroll the cursor into view.
+    /// Live refresh: processes that have exited leave the selection.
+    pub fn drop_exited(&mut self) {
+        let alive: HashSet<u32> = self.snapshot.processes.iter().map(|p| p.pid).collect();
+        self.selection.retain(|pid| alive.contains(pid));
+        if self.selected.is_some_and(|pid| !alive.contains(&pid)) {
+            self.selected = None;
+        }
+    }
+
+    /// The selected processes that are on screen, in list order. Actions apply to these, so a
+    /// filter or a collapsed branch never acts on rows the user cannot see.
+    pub fn selected_pids(&self) -> Vec<u32> {
+        self.rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Process { info, .. } if self.selection.contains(&info.pid) => Some(info.pid),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Tab-separated visible columns, one line per process, in the order given.
+    pub fn process_lines(&self, pids: &[u32]) -> String {
+        pids.iter()
+            .filter_map(|pid| self.snapshot.processes.iter().find(|p| p.pid == *pid))
+            .map(|p| {
+                self.layout
+                    .visible()
+                    .map(|(_, c)| c.id.cell(p))
+                    .collect::<Vec<_>>()
+                    .join("\t")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// A click on a row: plain selects it, ⌘ (or Ctrl) toggles it, Shift selects the range from
+    /// the anchor. Group rows always just take the cursor.
+    pub fn click_row(&mut self, id: RowId, m: gpui::Modifiers) {
+        match id {
+            RowId::Pid(_) if m.shift => self.extend_selection(id),
+            RowId::Pid(_) if m.platform || m.control => self.toggle_selection(id),
+            _ => self.set_cursor(Some(id)),
+        }
+    }
+
+    fn toggle_selection(&mut self, id: RowId) {
+        let RowId::Pid(pid) = id else {
+            return;
+        };
+        if !self.selection.remove(&pid) {
+            self.selection.insert(pid);
+        }
+        self.selected = Some(pid);
+        self.anchor = Some(RowId::Pid(pid));
+        self.cursor = Some(RowId::Pid(pid));
+    }
+
+    /// Select every process from the anchor to `to`, in the current row order.
+    fn extend_selection(&mut self, to: RowId) {
+        let from = self
+            .anchor
+            .clone()
+            .or_else(|| self.cursor.clone())
+            .unwrap_or_else(|| to.clone());
+        let position = |id: &RowId| self.rows.iter().position(|r| &r.id() == id);
+        let (Some(a), Some(b)) = (position(&from), position(&to)) else {
+            return self.set_cursor(Some(to));
+        };
+        let (lo, hi) = (a.min(b), a.max(b));
+        self.selection = self.rows[lo..=hi]
+            .iter()
+            .filter_map(|r| match r {
+                Row::Process { info, .. } => Some(info.pid),
+                Row::Group { .. } => None,
+            })
+            .collect();
+        self.selected = match &to {
+            RowId::Pid(pid) => Some(*pid),
+            RowId::Group(_) => None,
+        };
+        self.cursor = Some(to);
+    }
+
+    /// ⌘A on the process table: every process row on screen.
+    pub fn select_all_processes(&mut self) {
+        self.selection = self
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Process { info, .. } => Some(info.pid),
+                Row::Group { .. } => None,
+            })
+            .collect();
+    }
+
+    /// Esc with several processes selected: keep only the cursor row. Returns whether it did.
+    pub fn collapse_selection(&mut self) -> bool {
+        if self.is_listing() {
+            return self.collapse_list_selection();
+        }
+        if self.page != Page::Processes || self.selection.len() < 2 {
+            return false;
+        }
+        let cursor = self.cursor.clone();
+        self.set_cursor(cursor);
+        true
+    }
+
+    /// Apply a plain keyboard move: update the cursor, fold/unfold, and scroll the cursor into view.
     pub fn navigate_processes(&mut self, nav: Nav) {
+        self.move_processes(nav, false);
+    }
+
+    /// Apply a keyboard move; `extend` (Shift) grows the selection from the anchor instead of
+    /// selecting just the new row.
+    pub fn move_processes(&mut self, nav: Nav, extend: bool) {
         let page = f32::from(self.scroll.0.borrow().base_handle.bounds().size.height) / ROW_HEIGHT;
         let cursor = self
             .cursor
@@ -1038,7 +1155,10 @@ impl OtmApp {
             (Some(RowId::Group(key)), all) => self.toggle_group(&key, all),
             (None, _) => {}
         }
-        self.set_cursor(result.select);
+        match result.select {
+            Some(id) if extend => self.extend_selection(id),
+            select => self.set_cursor(select),
+        }
         if let Some(id) = &self.cursor
             && let Some(ix) = self.rows.iter().position(|r| &r.id() == id)
         {
@@ -1081,6 +1201,7 @@ impl OtmApp {
 
     fn toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.snapshot.processes.len();
+        let targets = self.selected_pids();
         let subtitle = match &self.notice {
             Some((msg, err)) => div()
                 .text_color(if *err { t.hot } else { t.good })
@@ -1125,27 +1246,29 @@ impl OtmApp {
                     .child(
                         ui::pill(t, "quit", "Quit", false)
                             .flex_shrink_0()
-                            .when(self.selected.is_none(), |d| d.opacity(0.4))
-                            .when_some(self.selected, |d, pid| {
+                            .when(targets.is_empty(), |d| d.opacity(0.4))
+                            .when(!targets.is_empty(), |d| {
+                                let pids = targets.clone();
                                 d.on_click(cx.listener(move |this, _, _, cx| {
-                                    this.perform(Action::Signal(pid, false), cx)
+                                    this.run_context_signal(pids.clone(), libc::SIGTERM, "Quit", cx)
                                 }))
                             })
-                            .tooltip(ui::tip("Ask the selected process to quit")),
+                            .tooltip(ui::tip("Ask the selected processes to quit")),
                     )
                     .child(
                         ui::pill(t, "force-quit", "Force Quit…", false)
                             .debug_selector(|| "force-quit".into())
                             .flex_shrink_0()
                             .text_color(t.hot)
-                            .when(self.selected.is_none(), |d| d.opacity(0.4))
-                            .when_some(self.selected, |d, pid| {
+                            .when(targets.is_empty(), |d| d.opacity(0.4))
+                            .when(!targets.is_empty(), |d| {
+                                let pids = targets.clone();
                                 d.on_click(cx.listener(move |this, _, _, cx| {
-                                    this.ask_force_quit(vec![pid]);
+                                    this.ask_force_quit(pids.clone());
                                     cx.notify();
                                 }))
                             })
-                            .tooltip(ui::tip("Stop the selected process at once (asks first)")),
+                            .tooltip(ui::tip("Stop the selected processes at once (asks first)")),
                     )
                     .child(
                         ui::pill(t, "columns-btn", "Columns ▾", self.column_menu)
@@ -1636,7 +1759,7 @@ impl OtmApp {
                 tree_memory,
             } => {
                 let pid = info.pid;
-                let selected = self.selected == Some(pid);
+                let selected = self.selection.contains(&pid);
                 let tree = self.layout.group_by != GroupBy::None;
                 let tree_col = self.tree_column();
                 let (depth, descendants, collapsed, tree_memory) =
@@ -1654,7 +1777,10 @@ impl OtmApp {
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                            this.set_cursor(Some(RowId::Pid(pid)));
+                            // Right-clicking inside the selection keeps it; anywhere else selects that row.
+                            if !this.selected_pids().contains(&pid) {
+                                this.set_cursor(Some(RowId::Pid(pid)));
+                            }
                             this.context_menu = Some((RowId::Pid(pid), ev.position));
                             window.focus(&this.focus);
                             cx.notify();
@@ -1805,8 +1931,8 @@ impl OtmApp {
                                 },
                             )
                     }))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.set_cursor(Some(RowId::Pid(pid)));
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                        this.click_row(RowId::Pid(pid), ev.modifiers());
                         window.focus(&this.focus);
                         cx.notify();
                     }))
