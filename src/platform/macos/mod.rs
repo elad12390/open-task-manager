@@ -30,6 +30,7 @@ pub const CAPS: Caps = Caps {
     can_uninstall: true,
     glass_blur: true,
     in_window_menu: false,
+    show_app_source: false,
 };
 
 pub fn data_root() -> std::path::PathBuf {

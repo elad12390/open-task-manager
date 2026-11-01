@@ -692,6 +692,7 @@ impl OtmApp {
             version: version.into(),
             path: PathBuf::from(format!("/Applications/{name}.app")),
             bytes: Some(mb * MB),
+            source: "Application",
         })
         .collect();
         self.power = Some(Power {

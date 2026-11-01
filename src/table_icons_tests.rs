@@ -125,6 +125,7 @@ fn apps_rows_carry_their_bundle_icon(cx: &mut TestAppContext) {
             version: "18".into(),
             path: "/Applications/Safari.app".into(),
             bytes: None,
+            source: "Application",
         }];
         app.page = Page::Apps;
         app.rebuild_listing();

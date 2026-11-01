@@ -131,16 +131,20 @@ pub struct InstalledApp {
     pub version: String,
     pub path: PathBuf,
     pub bytes: Option<u64>,
+    /// Where the app came from, as the Source column shows it.
+    pub source: &'static str,
 }
 
-pub fn app_sizes(paths: &[PathBuf]) -> Vec<Option<u64>> {
-    paths
-        .iter()
-        .map(|p| {
-            run("du", &["-sk", &p.to_string_lossy()])
-                .ok()
-                .and_then(|o| o.split_whitespace().next()?.parse::<u64>().ok())
-                .map(|k| k * 1024)
+/// The size of each app: the size the platform already read, else `du` of its path.
+pub fn app_sizes(apps: &[InstalledApp]) -> Vec<Option<u64>> {
+    apps.iter()
+        .map(|a| {
+            a.bytes.or_else(|| {
+                run("du", &["-sk", &a.path.to_string_lossy()])
+                    .ok()
+                    .and_then(|o| o.split_whitespace().next()?.parse::<u64>().ok())
+                    .map(|k| k * 1024)
+            })
         })
         .collect()
 }

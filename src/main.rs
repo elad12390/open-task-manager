@@ -18,6 +18,8 @@ mod holidays;
 mod icon_pack_tests;
 mod icons;
 #[cfg(test)]
+mod linux_apps_tests;
+#[cfg(test)]
 mod listing_autocomplete_tests;
 mod menus;
 mod metrics;

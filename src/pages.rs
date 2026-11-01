@@ -184,13 +184,13 @@ impl OtmApp {
             }),
             Page::Apps => {
                 self.run_bg(cx, sysops::installed_apps, |app, v, cx| {
-                    let paths: Vec<PathBuf> = v.iter().map(|a| a.path.clone()).collect();
+                    let listed = v.clone();
                     app.listing_loading = false;
                     app.apps = v;
                     app.rebuild_listing();
                     app.run_bg(
                         cx,
-                        move || sysops::app_sizes(&paths),
+                        move || sysops::app_sizes(&listed),
                         |app, sizes, _| {
                             for (a, s) in app.apps.iter_mut().zip(sizes) {
                                 a.bytes = s;
@@ -639,14 +639,19 @@ impl OtmApp {
                     })
                     .collect(),
             ),
-            Page::Apps => (
-                vec![
+            Page::Apps => {
+                let source = crate::platform::CAPS.show_app_source;
+                let mut headers = vec![
                     text("Name", 280.),
                     text("Version", 120.),
                     num("Size", 100.),
                     text("Location", 360.),
-                ],
-                self.apps
+                ];
+                if source {
+                    headers.push(text("Source", 120.));
+                }
+                let rows = self
+                    .apps
                     .iter()
                     .map(|a| {
                         let path = a.path.display().to_string();
@@ -662,27 +667,34 @@ impl OtmApp {
                             }
                             actions
                         };
+                        let mut cells = vec![
+                            a.name.clone(),
+                            a.version.clone(),
+                            a.bytes.map(fmt_size).unwrap_or_else(|| "…".into()),
+                            path.clone(),
+                        ];
+                        let mut keys = vec![
+                            K::text(&a.name),
+                            K::text(&a.version),
+                            K::num(a.bytes.map_or(-1., |b| b as f64)),
+                            K::text(&path),
+                        ];
+                        if source {
+                            cells.push(a.source.into());
+                            keys.push(K::text(a.source));
+                        }
                         row(
                             path.clone(),
                             Some(icons::path_key(&a.path.to_string_lossy())),
-                            vec![
-                                a.name.clone(),
-                                a.version.clone(),
-                                a.bytes.map(fmt_size).unwrap_or_else(|| "…".into()),
-                                path.clone(),
-                            ],
-                            vec![
-                                K::text(&a.name),
-                                K::text(&a.version),
-                                K::num(a.bytes.map_or(-1., |b| b as f64)),
-                                K::text(&path),
-                            ],
+                            cells,
+                            keys,
                             false,
                             actions,
                         )
                     })
-                    .collect(),
-            ),
+                    .collect();
+                (headers, rows)
+            }
             _ => (vec![], vec![]),
         };
         // The filter searches every column and applies the column chips; the chosen sort applies on

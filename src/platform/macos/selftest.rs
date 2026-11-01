@@ -25,7 +25,7 @@ fn alive(pid: u32) -> bool {
 }
 
 /// Under launchd, all but a few processes of the tree sit below it.
-pub fn init_holds_tree(descendants: usize, rows: usize) -> bool {
+pub fn init_holds_tree(descendants: usize, _kernel: usize, rows: usize) -> bool {
     descendants + 3 >= rows
 }
 

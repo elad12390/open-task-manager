@@ -13,9 +13,9 @@ use crate::{
 const AUTOSTART: &str = "otm-selftest.desktop";
 const UNIT: &str = "otm-selftest.service";
 
-/// Under init (systemd), the init process holds at least half of the tree.
-pub fn init_holds_tree(descendants: usize, rows: usize) -> bool {
-    descendants * 2 >= rows
+/// Init (systemd) and kthreadd, the parent of kernel threads, hold all but a few rows of the tree.
+pub fn init_holds_tree(descendants: usize, kernel: usize, rows: usize) -> bool {
+    descendants + kernel + 3 >= rows
 }
 
 /// Kernel threads have neither a resident-memory reading nor an executable on Linux.
@@ -192,7 +192,14 @@ fn folder_size(r: &mut Report) {
     let written =
         fs::create_dir_all(&dir).and_then(|_| fs::write(dir.join("blob.bin"), vec![1u8; blob]));
     let sizes = if written.is_ok() {
-        sysops::app_sizes(std::slice::from_ref(&dir))
+        // No size known up front, so this measures the folder itself.
+        sysops::app_sizes(&[sysops::InstalledApp {
+            name: "selftest".into(),
+            version: String::new(),
+            path: dir.clone(),
+            bytes: None,
+            source: "Manual",
+        }])
     } else {
         vec![None]
     };

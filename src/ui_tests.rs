@@ -1238,6 +1238,7 @@ fn listing_tables_sort_and_filter(cx: &mut TestAppContext) {
             version: version.into(),
             path: PathBuf::from(format!("/Applications/{name}.app")),
             bytes: Some(mb * MB),
+            source: "Application",
         })
         .collect();
         app.rebuild_listing();

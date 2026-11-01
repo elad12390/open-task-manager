@@ -1,6 +1,8 @@
 //! Linux: `/proc` and `/sys` for processes and hardware, systemd for services and user units, `ss` for
-//! sockets, XDG autostart entries for startup items, and UPower-style reads from `/sys` for power.
+//! sockets, XDG autostart entries for startup items, UPower-style reads from `/sys` for power, and
+//! desktop entries for installed apps.
 
+pub mod apps;
 pub mod icons;
 mod net;
 mod owners;
@@ -19,15 +21,15 @@ use std::{
 use gpui::{TitlebarOptions, WindowBackgroundAppearance};
 
 use super::{Caps, Chrome, WindowRole};
-use crate::{metrics::ProcessInfo, sysops::InstalledApp};
+use crate::metrics::ProcessInfo;
 
+pub use apps::{installed_apps, trash_app};
 pub use net::connections;
 pub use power::power;
 pub use proc::{is_kernel_process, process_state, process_table, system_info};
 pub use services::{control_service, services};
 pub use startup::{startup_items, toggle_startup};
 
-const NOT_YET: &str = "Not available yet";
 /// Your own command-line tools and shells, each filed under the one you ran them from.
 pub const TOOLS: &str = "Command-line & Other";
 
@@ -39,9 +41,10 @@ pub const CAPS: Caps = Caps {
     mod_label: "Ctrl+",
     reveal_label: "Show in Files",
     reveal_app_label: "Show App Folder",
-    can_uninstall: false,
+    can_uninstall: true,
     glass_blur: false,
     in_window_menu: true,
+    show_app_source: true,
 };
 
 /// Runs a command on this machine and returns its output. Every command the platform runs goes
@@ -201,14 +204,6 @@ fn classify_with(
     } else {
         (TOOLS, p.name.clone())
     }
-}
-
-pub fn installed_apps() -> Vec<InstalledApp> {
-    Vec::new()
-}
-
-pub fn trash_app(_path: &Path) -> Result<(), String> {
-    Err(NOT_YET.into())
 }
 
 #[cfg(test)]

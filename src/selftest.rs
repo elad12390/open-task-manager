@@ -142,9 +142,14 @@ pub fn run() -> i32 {
     let max_depth = nodes.iter().map(|n| n.2).max().unwrap_or(0);
     let roots = nodes.iter().filter(|n| n.2 == 0).count();
     let launchd = nodes.iter().find(|n| n.0 == 1);
+    // Linux files kernel threads under kthreadd (PID 2), beside init; macOS has none.
+    let kernel = nodes
+        .iter()
+        .find(|n| n.0 == 2 && n.2 == 0)
+        .map_or(0, |n| n.3 + 1);
     r.check(
         "process tree",
-        nodes.len() == snap.processes.len() && misplaced == 0 && max_depth >= 2 && roots <= 3 && launchd.is_some_and(|n| n.2 == 0 && crate::platform::selftest::init_holds_tree(n.3, nodes.len())),
+        nodes.len() == snap.processes.len() && misplaced == 0 && max_depth >= 2 && roots <= 3 && launchd.is_some_and(|n| n.2 == 0 && crate::platform::selftest::init_holds_tree(n.3, kernel, nodes.len())),
         format!(
             "{} rows, {roots} roots, max depth {max_depth}, launchd has {} descendants, {misplaced} rows not under their parent",
             nodes.len(),
