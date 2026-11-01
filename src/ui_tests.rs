@@ -476,7 +476,15 @@ fn folding_folds_the_whole_batch(cx: &mut TestAppContext) {
         "fold launchd: {} rows shown; {folded_below} of {below} branches under it are folded",
         shape(cx).0
     );
-    assert_eq!(shape(cx).0, 1);
+    // Nothing under launchd is still shown (other top-level rows may come and go on a live Mac).
+    let still_shown = view.read_with(cx, |app, _| {
+        let below = branch_descendants(&app.snapshot.processes, 1);
+        app.rows
+            .iter()
+            .filter(|r| matches!(r, Row::Process { info, .. } if below.contains(&info.pid)))
+            .count()
+    });
+    assert_eq!(still_shown, 0);
     assert!(below > 5);
     assert_eq!(
         folded_below, below,
