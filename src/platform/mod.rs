@@ -17,8 +17,8 @@ compile_error!("Open Task Manager builds for macOS and Linux only");
 
 pub use imp::{
     APP_ID, CAPS, bypass_cache, classify, connections, control_service, data_root, host_processes,
-    installed_apps, is_kernel_process, open_path, power, process_state, process_table, reveal,
-    services, shows_volume, signal, startup_items, system_info, toggle_startup, trash_app,
+    installed_apps, is_kernel_process, open_path, own_pid, power, process_state, process_table,
+    reveal, services, shows_volume, signal, startup_items, system_info, toggle_startup, trash_app,
 };
 
 #[cfg(all(target_os = "macos", test))]
@@ -97,7 +97,7 @@ pub mod icons {
 
 /// Platform checks run by `otm --selftest`, after the shared ones.
 pub mod selftest {
-    pub use super::imp::selftest::{app_checks, init_holds_tree, unmeasured};
+    pub use super::imp::selftest::{Throwaway, app_checks, init_holds_tree, unmeasured};
 }
 
 /// What differs between the platforms and the UI needs to know: group names, shortcut

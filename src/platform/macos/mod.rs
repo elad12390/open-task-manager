@@ -69,6 +69,11 @@ pub fn signal(pid: u32, sig: i32) -> Result<(), String> {
     }
 }
 
+/// This process's pid as the process table shows it (the app is never in a separate pid namespace here).
+pub fn own_pid() -> u32 {
+    std::process::id()
+}
+
 /// The process table comes from `ps` and sysinfo here, so there is no host table to read.
 pub fn host_processes() -> Option<Vec<crate::metrics::ProcessInfo>> {
     None

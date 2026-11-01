@@ -28,6 +28,31 @@ fn alive(pid: u32) -> bool {
     host::run(&["kill", "-0", &pid.to_string()]).is_ok()
 }
 
+/// A disposable `sleep` for the quit checks, started on the host so its pid is the one the process table
+/// and the signals use (inside a Flatpak a child of this process has a sandbox pid).
+pub struct Throwaway(u32);
+
+impl Throwaway {
+    pub fn start() -> Option<Self> {
+        host::run(&["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"])
+            .ok()
+            .and_then(|out| out.trim().parse().ok())
+            .map(Self)
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.0
+    }
+
+    /// Whether the process is gone within two seconds of the signal.
+    pub fn ended(self) -> bool {
+        (0..20).any(|_| {
+            sleep(Duration::from_millis(100));
+            !alive(self.0)
+        })
+    }
+}
+
 pub fn app_checks(r: &mut Report, snap: &Snapshot) {
     let started = std::time::Instant::now();
     let kernel = host::run(&["uname", "-s"]);
@@ -197,6 +222,14 @@ fn signals(r: &mut Report, snap: &Snapshot) {
 }
 
 fn sockets(r: &mut Report) {
+    if host::sandboxed() {
+        // The listing reads the host's sockets; a Flatpak without network access has its own network
+        // namespace, so a socket it opens is never one of them.
+        println!(
+            "SKIP connections: this process's sockets live in the sandbox's own network namespace"
+        );
+        return;
+    }
     let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
         r.check("connections", false, "cannot open a test socket");
         return;

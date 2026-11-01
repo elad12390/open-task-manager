@@ -24,6 +24,28 @@ fn alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
+/// A disposable `sleep` for the quit checks: a child of this process.
+pub struct Throwaway(std::process::Child);
+
+impl Throwaway {
+    pub fn start() -> Option<Self> {
+        std::process::Command::new("/bin/sleep")
+            .arg("600")
+            .spawn()
+            .ok()
+            .map(Self)
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.0.id()
+    }
+
+    /// Whether the process ended because of a signal (not a normal exit).
+    pub fn ended(mut self) -> bool {
+        self.0.wait().is_ok_and(|s| !s.success())
+    }
+}
+
 /// Under launchd, all but a few processes of the tree sit below it.
 pub fn init_holds_tree(descendants: usize, _kernel: usize, rows: usize) -> bool {
     descendants + 3 >= rows

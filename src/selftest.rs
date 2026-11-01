@@ -1,6 +1,6 @@
 //! `otm --selftest`: exercises the real action code paths on disposable targets and prints PASS/FAIL.
 
-use std::{collections::HashSet, fs, process::Command, thread::sleep, time::Duration};
+use std::{collections::HashSet, fs, thread::sleep, time::Duration};
 
 use crate::{
     columns::{ColumnId, GroupBy, TableLayout},
@@ -262,7 +262,8 @@ pub fn run() -> i32 {
             folded.len()
         ),
     );
-    let me = std::process::id();
+    // This process as the table shows it (its host pid inside a Flatpak).
+    let me = crate::platform::own_pid();
     // A filter starts with every branch open (its own fold state, see `OtmApp::folds`).
     let filtered = build_rows(&snap.processes, &layout, "otm", &HashSet::new());
     let shown: Vec<u32> = filtered
@@ -322,24 +323,20 @@ pub fn run() -> i32 {
     );
 
     // Quit / force quit a disposable process.
-    let mut child = Command::new("/bin/sleep").arg("600").spawn().unwrap();
-    let pid = child.id();
-    let res = sysops::signal_process(pid, false);
-    let status = child.wait().ok();
-    r.check(
-        "quit process",
-        res.is_ok() && status.is_some_and(|s| !s.success()),
-        format!("pid {pid}: {res:?}, exit {status:?}"),
-    );
-    let mut child = Command::new("/bin/sleep").arg("600").spawn().unwrap();
-    let pid = child.id();
-    let res = sysops::signal_process(pid, true);
-    let status = child.wait().ok();
-    r.check(
-        "force quit process",
-        res.is_ok() && status.is_some(),
-        format!("pid {pid}: {res:?}, exit {status:?}"),
-    );
+    for (name, force) in [("quit process", false), ("force quit process", true)] {
+        let Some(child) = crate::platform::selftest::Throwaway::start() else {
+            r.check(name, false, "cannot start a test process");
+            continue;
+        };
+        let pid = child.pid();
+        let res = sysops::signal_process(pid, force);
+        let ended = child.ended();
+        r.check(
+            name,
+            res.is_ok() && ended,
+            format!("pid {pid}: {res:?}, ended {ended}"),
+        );
+    }
     r.check(
         "refuse pid 1",
         sysops::signal_process(1, true).is_err(),

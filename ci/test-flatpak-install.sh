@@ -12,9 +12,11 @@ docker run --rm --privileged --name "otm-flatpak-test-$$" \
   -v "$BUNDLE":/bundle/app.flatpak:ro \
   fedora:latest bash -c "
     set -euo pipefail
-    dnf install -y -q flatpak
+    dnf install -y -q flatpak dbus-daemon
     flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     flatpak install --user -y --noninteractive --bundle /bundle/app.flatpak
-    flatpak run --user --command=otm $APP_ID --selftest
-    flatpak run --user --command=otm $APP_ID --version
+    # A desktop session has a session bus; flatpak-spawn --host reaches the host through it
+    # (org.freedesktop.Flatpak, activated on demand), so the selftest runs inside one.
+    dbus-run-session -- flatpak run --user --command=otm $APP_ID --selftest
+    dbus-run-session -- flatpak run --user --command=otm $APP_ID --version
   "

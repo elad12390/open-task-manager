@@ -111,10 +111,7 @@ pub fn process_table() -> HashMap<u32, PsRow> {
 
 /// The kernel's state letter for a process ("R", "S", "T" = stopped…), or None if it is gone.
 pub fn process_state(pid: u32) -> Option<String> {
-    if host::sandboxed() {
-        let out = host::run(&["ps", "-o", "stat=", "-p", &pid.to_string()]).ok()?;
-        return out.trim().chars().next().map(|c| c.to_string());
-    }
+    // The host's /proc through the host route, so no `ps` is needed on the host.
     stat_fields(pid)?.first().cloned()
 }
 
