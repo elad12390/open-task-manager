@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org).
 
+## [0.2.1]
+
+- Select anything: group rows, tree sections and processes all join the selection (⌘/Ctrl-click, Shift-click,
+  Shift+arrows, ⌘A); actions apply to every process inside the selected rows, never to macOS's own.
+- Filtering no longer locks the tree open: fold and unfold with the keyboard or the chevrons while filtering,
+  and ↓ or Return from the filter field moves into the table.
+- Every table has every column feature: resize, double-click to fit, drag headers to reorder, show/hide,
+  sideways scrolling, and a saved layout (Users, Startup Items, Services, Connections, Apps, Disk Space).
+- The Columns menu reorders by drag and drop.
+- Plain, shorter wording across the app: titles name things, explanations are gone.
+- Fixed: clicks in a Columns menu could reach the row underneath it.
+
 ## [0.2.0]
 
 - Multi-selection in every table, desktop style: ⌘-click (or Ctrl-click) toggles, Shift-click selects a range,

@@ -1,6 +1,6 @@
 [package]
 name = "open-task-manager"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Open-source, local-only macOS system monitor (GPUI)"
 license = "Apache-2.0"
