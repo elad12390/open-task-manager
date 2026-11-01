@@ -293,7 +293,6 @@ const SEEDS: &[Seed] = &[
 const ROOT: &str = "0::/";
 const INIT: &str = "0::/init.scope";
 const SESSION: &str = "0::/user.slice/user-1000.slice/session-2.scope";
-const USER_APP: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/";
 const SHELL: &str =
     "0::/user.slice/user-1000.slice/user@1000.service/app.slice/gnome-shell-wayland.service";
 const PIPEWIRE: &str =
