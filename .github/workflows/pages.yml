@@ -22,7 +22,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Add the app icon, demo GIFs and Linux screenshots to the site
         run: |
           cp assets/AppIcon.png site/icon.png
