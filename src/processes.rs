@@ -19,7 +19,7 @@ use crate::{
     ui,
 };
 
-const ROW_HEIGHT: f32 = 26.;
+pub(crate) const ROW_HEIGHT: f32 = 26.;
 const HEADER_HEIGHT: f32 = 30.;
 
 pub enum Row {
@@ -1737,8 +1737,11 @@ impl OtmApp {
                                 .when_some(note, |d, note| {
                                     d.child(
                                         div()
+                                            .flex_1()
                                             .min_w_0()
-                                            .truncate()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
                                             .text_xs()
                                             .font_weight(FontWeight::NORMAL)
                                             .text_color(if selected {

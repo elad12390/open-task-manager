@@ -2,7 +2,7 @@
 //! entries, your systemd user units, signals on throwaway processes, sockets, folder sizes and cores.
 
 use super::{host, startup::config_home};
-use std::{net::TcpListener, path::PathBuf, thread::sleep, time::Duration};
+use std::{fs, net::TcpListener, path::PathBuf, thread::sleep, time::Duration};
 
 use crate::{
     categories,

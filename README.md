@@ -158,7 +158,8 @@ to run the benchmarks and `--scan` to run a home-folder disk scan.
 
 ### Demo mode and the GIFs
 
-`otm --demo <scene>` shows a fictional Mac and plays a scripted tour, then quits. Nothing is read from your system
+`otm --demo <scene>` shows a fictional computer (a Mac on macOS, a PC on Linux) and plays a scripted tour, then quits.
+`OTM_DEMO_CAPTIONS=0` hides the captions, for screenshots. Nothing is read from your system
 and no real process is ever signalled. Scenes: `overview`, `process-tree`, `memory`, `columns`, `filters`, `context-menu`,
 `keyboard`, `pages`.
 

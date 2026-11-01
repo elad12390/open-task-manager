@@ -856,54 +856,63 @@ impl OtmApp {
                             .child(div().text_xs().text_color(t.text_dim).child(s.host.clone())),
                     ),
             )
-            .children(Page::SECTIONS.iter().map(|(title, pages)| {
+            .child(
                 div()
+                    .id("sidebar-nav")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
                     .flex()
                     .flex_col()
                     .gap_0p5()
-                    .child(
+                    .children(Page::SECTIONS.iter().map(|(title, pages)| {
                         div()
-                            .px_3()
-                            .pt_2()
-                            .pb_0p5()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.text_faint)
-                            .child(*title),
-                    )
-                    .children(pages.iter().map(|&page| {
-                        let active = self.page == page;
-                        div()
-                            .id(page.label())
                             .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .px_3()
-                            .py(px(5.))
-                            .rounded(px(10.))
-                            .cursor_pointer()
-                            .text_sm()
-                            .when(active, |d| d.bg(t.accent_soft).text_color(t.accent))
-                            .when(!active, |d| {
-                                d.text_color(t.text).hover(|h| h.bg(t.glass_hover))
-                            })
-                            .child(div().w(px(16.)).child(ui::icon(
-                                page.icon(),
-                                15.,
-                                if active { t.accent } else { t.text },
-                            )))
-                            .child(page.label())
-                            .when(page == Page::Recorder && self.recording.is_some(), |d| {
-                                d.child(div().size(px(7.)).rounded_full().bg(t.hot))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_page(page, cx);
-                                cx.notify();
+                            .flex_col()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .px_3()
+                                    .pt_2()
+                                    .pb_0p5()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.text_faint)
+                                    .child(*title),
+                            )
+                            .children(pages.iter().map(|&page| {
+                                let active = self.page == page;
+                                div()
+                                    .id(page.label())
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .px_3()
+                                    .py(px(5.))
+                                    .rounded(px(10.))
+                                    .cursor_pointer()
+                                    .text_sm()
+                                    .when(active, |d| d.bg(t.accent_soft).text_color(t.accent))
+                                    .when(!active, |d| {
+                                        d.text_color(t.text).hover(|h| h.bg(t.glass_hover))
+                                    })
+                                    .child(div().w(px(16.)).child(ui::icon(
+                                        page.icon(),
+                                        15.,
+                                        if active { t.accent } else { t.text },
+                                    )))
+                                    .child(page.label())
+                                    .when(page == Page::Recorder && self.recording.is_some(), |d| {
+                                        d.child(div().size(px(7.)).rounded_full().bg(t.hot))
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_page(page, cx);
+                                        cx.notify();
+                                    }))
                             }))
-                    }))
-            }))
-            .child(div().flex_1())
+                    })),
+            )
             .child(
                 div()
                     .flex()

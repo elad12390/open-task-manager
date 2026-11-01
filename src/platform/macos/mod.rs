@@ -1,6 +1,7 @@
 //! macOS: launchd, Finder, AppKit icons, `ps`, `lsof`, `pmset` and `ioreg`.
 
 mod classify;
+pub mod demo_data;
 pub mod icons;
 mod launchd;
 pub mod selftest;

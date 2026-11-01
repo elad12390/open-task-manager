@@ -1,8 +1,8 @@
-//! `otm --demo <scene>`: a fictional Mac ("Demo Mac", user "alex") and scripted tours of each
-//! feature, used to record the README and website GIFs. In demo mode nothing is read from the real
-//! system and no real process is ever signalled.
+//! `otm --demo <scene>`: a fictional machine (each OS has its own, under `platform::demo_data`) and
+//! scripted tours of each feature, used to record the README and website GIFs. In demo mode nothing
+//! is read from the real system and no real process is ever signalled.
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use gpui::{Context, point, px};
 
@@ -11,11 +11,9 @@ use crate::{
     columns::{ColumnId, GroupBy},
     filter::Chip,
     metrics::{DiskInfo, ProcessInfo, Snapshot},
-    processes::{Nav, Row, RowId},
-    sysops::{
-        BenchResult, Connection, FolderSize, InstalledApp, Power, Scan, Service, StartupItem,
-        SystemInfo,
-    },
+    platform,
+    processes::{Nav, ROW_HEIGHT, Row, RowId},
+    sysops::{BenchResult, FolderSize, Scan},
 };
 
 pub const SCENES: [&str; 8] = [
@@ -32,486 +30,12 @@ pub const SCENES: [&str; 8] = [
 const GB: u64 = 1024 * 1024 * 1024;
 const MB: u64 = 1024 * 1024;
 
-struct Seed {
-    pid: u32,
-    ppid: u32,
-    name: &'static str,
-    user: &'static str,
-    cpu: f32,
-    mem_mb: u64,
-    path: &'static str,
-}
-
-const fn p(
-    pid: u32,
-    ppid: u32,
-    name: &'static str,
-    user: &'static str,
-    cpu: f32,
-    mem_mb: u64,
-    path: &'static str,
-) -> Seed {
-    Seed {
-        pid,
-        ppid,
-        name,
-        user,
-        cpu,
-        mem_mb,
-        path,
-    }
-}
-
-const CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const CHROME_HELPER: &str = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/A/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)";
-const CHROME_GPU: &str = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/A/Helpers/Google Chrome Helper (GPU).app/Contents/MacOS/Google Chrome Helper (GPU)";
-const FIREFOX: &str = "/Applications/Firefox.app/Contents/MacOS/firefox";
-const FIREFOX_CHILD: &str =
-    "/Applications/Firefox.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container";
-const SPOTIFY: &str = "/Applications/Spotify.app/Contents/MacOS/Spotify";
-const SPOTIFY_HELPER: &str = "/Applications/Spotify.app/Contents/Frameworks/Spotify Helper (Renderer).app/Contents/MacOS/Spotify Helper (Renderer)";
-
-/// The fictional Mac's processes: (pid, parent, name, user, base CPU %, memory MB, path).
-const SEEDS: &[Seed] = &[
-    p(1, 0, "launchd", "root", 0.4, 14, "/sbin/launchd"),
-    p(310, 1, "logd", "root", 0.6, 22, "/usr/libexec/logd"),
-    p(312, 1, "configd", "root", 0.2, 9, "/usr/libexec/configd"),
-    p(
-        318,
-        1,
-        "UserEventAgent",
-        "root",
-        0.1,
-        11,
-        "/usr/libexec/UserEventAgent",
-    ),
-    p(
-        320,
-        1,
-        "fseventsd",
-        "root",
-        0.3,
-        8,
-        "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd",
-    ),
-    p(
-        330,
-        1,
-        "WindowServer",
-        "_windowserver",
-        9.8,
-        610,
-        "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer",
-    ),
-    p(
-        340,
-        1,
-        "mds",
-        "root",
-        1.9,
-        96,
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds",
-    ),
-    p(
-        341,
-        1,
-        "mds_stores",
-        "_mds_stores",
-        2.4,
-        182,
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds_stores",
-    ),
-    p(
-        342,
-        341,
-        "mdworker_shared",
-        "alex",
-        0.8,
-        31,
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared",
-    ),
-    p(
-        343,
-        341,
-        "mdworker_shared",
-        "alex",
-        0.5,
-        28,
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared",
-    ),
-    p(
-        350,
-        1,
-        "coreaudiod",
-        "_coreaudiod",
-        1.2,
-        44,
-        "/usr/sbin/coreaudiod",
-    ),
-    p(
-        352,
-        1,
-        "bluetoothd",
-        "root",
-        0.4,
-        19,
-        "/usr/sbin/bluetoothd",
-    ),
-    p(354, 1, "airportd", "root", 0.3, 15, "/usr/libexec/airportd"),
-    p(
-        356,
-        1,
-        "mDNSResponder",
-        "_mdnsresponder",
-        0.2,
-        12,
-        "/usr/sbin/mDNSResponder",
-    ),
-    p(360, 1, "securityd", "root", 0.1, 21, "/usr/sbin/securityd"),
-    p(361, 1, "trustd", "root", 0.2, 17, "/usr/libexec/trustd"),
-    p(
-        362,
-        1,
-        "syspolicyd",
-        "root",
-        0.1,
-        23,
-        "/usr/libexec/syspolicyd",
-    ),
-    p(
-        363,
-        1,
-        "tccd",
-        "root",
-        0.0,
-        9,
-        "/System/Library/PrivateFrameworks/TCC.framework/Support/tccd",
-    ),
-    p(
-        370,
-        1,
-        "powerd",
-        "root",
-        0.1,
-        7,
-        "/System/Library/CoreServices/powerd.bundle/powerd",
-    ),
-    p(
-        372,
-        1,
-        "thermalmonitord",
-        "root",
-        0.1,
-        6,
-        "/usr/libexec/thermalmonitord",
-    ),
-    p(
-        380,
-        1,
-        "locationd",
-        "_locationd",
-        0.2,
-        18,
-        "/usr/libexec/locationd",
-    ),
-    p(
-        382,
-        1,
-        "softwareupdated",
-        "root",
-        0.0,
-        27,
-        "/System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Support/softwareupdated",
-    ),
-    p(
-        390,
-        1,
-        "loginwindow",
-        "alex",
-        0.3,
-        64,
-        "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow",
-    ),
-    p(
-        400,
-        1,
-        "Dock",
-        "alex",
-        0.6,
-        88,
-        "/System/Library/CoreServices/Dock.app/Contents/MacOS/Dock",
-    ),
-    p(
-        401,
-        1,
-        "Finder",
-        "alex",
-        0.4,
-        142,
-        "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
-    ),
-    p(
-        402,
-        1,
-        "ControlCenter",
-        "alex",
-        0.5,
-        71,
-        "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter",
-    ),
-    p(
-        403,
-        1,
-        "NotificationCenter",
-        "alex",
-        0.2,
-        58,
-        "/System/Library/CoreServices/NotificationCenter.app/Contents/MacOS/NotificationCenter",
-    ),
-    p(
-        404,
-        1,
-        "Spotlight",
-        "alex",
-        0.1,
-        49,
-        "/System/Library/CoreServices/Spotlight.app/Contents/MacOS/Spotlight",
-    ),
-    p(
-        405,
-        1,
-        "SystemUIServer",
-        "alex",
-        0.1,
-        33,
-        "/System/Library/CoreServices/SystemUIServer.app/Contents/MacOS/SystemUIServer",
-    ),
-    p(
-        410,
-        1,
-        "cloudd",
-        "alex",
-        0.7,
-        52,
-        "/System/Library/PrivateFrameworks/CloudKitDaemon.framework/Support/cloudd",
-    ),
-    p(
-        411,
-        1,
-        "bird",
-        "alex",
-        0.3,
-        26,
-        "/System/Library/PrivateFrameworks/CloudDocsDaemon.framework/Versions/A/Support/bird",
-    ),
-    p(
-        420,
-        1,
-        "siriactionsd",
-        "alex",
-        0.0,
-        24,
-        "/System/Library/PrivateFrameworks/LinkServices.framework/Versions/A/Support/siriactionsd",
-    ),
-    p(
-        421,
-        1,
-        "photoanalysisd",
-        "alex",
-        3.1,
-        210,
-        "/System/Library/PrivateFrameworks/PhotoAnalysis.framework/Versions/A/Support/photoanalysisd",
-    ),
-    p(430, 1, "sharingd", "alex", 0.2, 37, "/usr/libexec/sharingd"),
-    p(431, 1, "rapportd", "alex", 0.1, 16, "/usr/libexec/rapportd"),
-    // Google Chrome and its helpers
-    p(1200, 1, "Google Chrome", "alex", 6.5, 520, CHROME),
-    p(
-        1201,
-        1200,
-        "Google Chrome Helper (GPU)",
-        "alex",
-        4.2,
-        380,
-        CHROME_GPU,
-    ),
-    p(
-        1202,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        3.8,
-        690,
-        CHROME_HELPER,
-    ),
-    p(
-        1203,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        1.1,
-        410,
-        CHROME_HELPER,
-    ),
-    p(
-        1204,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        0.4,
-        360,
-        CHROME_HELPER,
-    ),
-    p(
-        1205,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        0.2,
-        280,
-        CHROME_HELPER,
-    ),
-    p(
-        1206,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        0.1,
-        240,
-        CHROME_HELPER,
-    ),
-    p(
-        1207,
-        1200,
-        "Google Chrome Helper (Renderer)",
-        "alex",
-        0.0,
-        190,
-        CHROME_HELPER,
-    ),
-    // Firefox
-    p(1300, 1, "firefox", "alex", 3.2, 610, FIREFOX),
-    p(
-        1301,
-        1300,
-        "plugin-container",
-        "alex",
-        2.1,
-        330,
-        FIREFOX_CHILD,
-    ),
-    p(
-        1302,
-        1300,
-        "plugin-container",
-        "alex",
-        0.6,
-        270,
-        FIREFOX_CHILD,
-    ),
-    p(
-        1303,
-        1300,
-        "plugin-container",
-        "alex",
-        0.2,
-        150,
-        FIREFOX_CHILD,
-    ),
-    // Spotify
-    p(1400, 1, "Spotify", "alex", 1.4, 240, SPOTIFY),
-    p(
-        1401,
-        1400,
-        "Spotify Helper (Renderer)",
-        "alex",
-        0.9,
-        180,
-        SPOTIFY_HELPER,
-    ),
-    // Apple apps
-    p(
-        1500,
-        1,
-        "Mail",
-        "alex",
-        0.5,
-        210,
-        "/System/Applications/Mail.app/Contents/MacOS/Mail",
-    ),
-    p(
-        1510,
-        1,
-        "Music",
-        "alex",
-        0.8,
-        160,
-        "/System/Applications/Music.app/Contents/MacOS/Music",
-    ),
-    p(
-        1520,
-        1,
-        "Notes",
-        "alex",
-        0.1,
-        95,
-        "/System/Applications/Notes.app/Contents/MacOS/Notes",
-    ),
-    // Terminal with a shell and some tools
-    p(
-        1600,
-        1,
-        "Terminal",
-        "alex",
-        0.6,
-        120,
-        "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
-    ),
-    p(1601, 1600, "login", "root", 0.0, 3, "/usr/bin/login"),
-    p(1602, 1601, "zsh", "alex", 0.0, 6, "/bin/zsh"),
-    p(
-        1603,
-        1602,
-        "node",
-        "alex",
-        7.4,
-        420,
-        "/opt/homebrew/bin/node",
-    ),
-    p(
-        1604,
-        1602,
-        "python3",
-        "alex",
-        24.0,
-        260,
-        "/opt/homebrew/bin/python3",
-    ),
-    p(
-        1605,
-        1603,
-        "esbuild",
-        "alex",
-        1.2,
-        48,
-        "/opt/homebrew/lib/node_modules/esbuild/bin/esbuild",
-    ),
-    // This app
-    p(
-        1700,
-        1,
-        "otm",
-        "alex",
-        1.8,
-        92,
-        "/Applications/Open Task Manager.app/Contents/MacOS/otm",
-    ),
-];
-
-/// A frame of the fictional Mac at time `tick` (seconds); CPU moves smoothly, memory drifts.
+/// A frame of the fictional machine at time `tick` (seconds); CPU moves smoothly, memory drifts.
 pub fn snapshot(tick: u64, removed: &[u32]) -> Snapshot {
+    let machine = platform::demo_data::machine();
     let t = tick as f32;
-    let mut processes: Vec<ProcessInfo> = SEEDS
+    let mut processes: Vec<ProcessInfo> = machine
+        .seeds
         .iter()
         .filter(|s| !removed.contains(&s.pid))
         .map(|s| {
@@ -558,174 +82,45 @@ pub fn snapshot(tick: u64, removed: &[u32]) -> Snapshot {
     Snapshot {
         cpu: cores.iter().sum::<f32>() / cores.len() as f32,
         cores,
-        memory_used: 11 * GB + ((t * 0.2).sin() * 0.4 * GB as f32) as u64,
-        memory_total: 18 * GB,
+        memory_used: machine.memory_base + ((t * 0.2).sin() * 0.4 * GB as f32) as u64,
+        memory_total: machine.memory_total,
         swap_used: 512 * MB,
         net_down: (((t * 0.8).sin() * 0.5 + 0.6) * 2.4 * MB as f32) as u64,
         net_up: (((t * 1.1).cos() * 0.5 + 0.6) * 0.4 * MB as f32) as u64,
         disks: vec![DiskInfo {
             mount: "/".into(),
-            total: 994 * GB,
-            available: 412 * GB,
+            total: machine.disk_total,
+            available: machine.disk_free,
         }],
         processes,
         uptime: 3 * 86_400 + 4 * 3600 + tick,
-        host: "Demo Mac".into(),
-        os: "macOS 26.1".into(),
-        cpu_brand: "Apple M4 Pro".into(),
+        host: machine.host.into(),
+        os: machine.os.into(),
+        cpu_brand: machine.cpu_brand.into(),
     }
 }
 
 impl OtmApp {
     /// Fill every page with fictional data and start the scene's script.
     pub fn start_demo(&mut self, scene: String, cx: &mut Context<Self>) {
-        self.system = SystemInfo {
-            model: "Mac16,8".into(),
-            chip: "Apple M4 Pro".into(),
-            os: "macOS 26.1".into(),
-            build: "25B78".into(),
-            arch: "arm64".into(),
-            memory: 18 * GB,
-            physical_cores: 12,
-            performance_cores: 8,
-            efficiency_cores: 4,
-            booted: crate::sysops::now_secs() - (3 * 86_400 + 4 * 3600),
-        };
-        let agents = |label: &str, scope: &'static str, loaded: bool| StartupItem {
-            label: label.to_string(),
-            scope,
-            file: PathBuf::from(format!(
-                "{}/{label}.plist",
-                if scope == "User agent" {
-                    "/Users/alex/Library/LaunchAgents"
-                } else {
-                    "/Library/LaunchAgents"
-                }
-            )),
-            loaded,
-            editable: scope == "User agent",
-            program: None,
-        };
-        self.startup = vec![
-            agents("com.dropbox.dropboxmacupdate.agent", "System agent", true),
-            agents("com.google.keystone.agent", "System agent", false),
-            agents("us.zoom.updater", "System agent", true),
-            agents("com.spotify.webhelper", "User agent", true),
-            agents("homebrew.mxcl.postgresql@16", "User agent", true),
-            agents("homebrew.mxcl.redis", "User agent", false),
-            agents("com.example.backup", "User agent", true),
-        ];
-        self.services = [
-            ("com.apple.Finder", Some(401)),
-            ("com.apple.Dock.agent", Some(400)),
-            ("com.apple.cloudd", Some(410)),
-            ("com.apple.photoanalysisd", Some(421)),
-            ("com.apple.quicklook", None),
-            ("com.apple.sharingd", Some(430)),
-            ("com.spotify.webhelper", None),
-            ("homebrew.mxcl.postgresql@16", Some(1800)),
-        ]
-        .into_iter()
-        .map(|(label, pid)| Service {
-            label: label.into(),
-            pid,
-            status: 0,
-            program: None,
-            scope: "",
-        })
-        .collect();
-        self.connections = [
-            (
-                1200,
-                "Google Chrome",
-                "TCP",
-                "192.168.1.20:54012->142.250.74.14:443",
-                "ESTABLISHED",
-            ),
-            (1200, "Google Chrome", "UDP", "*:5353", ""),
-            (
-                1300,
-                "firefox",
-                "TCP",
-                "192.168.1.20:54210->151.101.1.140:443",
-                "ESTABLISHED",
-            ),
-            (
-                1400,
-                "Spotify",
-                "TCP",
-                "192.168.1.20:54301->35.186.224.25:443",
-                "ESTABLISHED",
-            ),
-            (
-                1500,
-                "Mail",
-                "TCP",
-                "192.168.1.20:54402->17.42.251.41:993",
-                "ESTABLISHED",
-            ),
-            (1603, "node", "TCP", "127.0.0.1:5173", "LISTEN"),
-            (1604, "python3", "TCP", "127.0.0.1:8000", "LISTEN"),
-            (356, "mDNSResponder", "UDP", "*:5353", ""),
-            (430, "sharingd", "UDP", "*:0", ""),
-        ]
-        .into_iter()
-        .map(|(pid, process, proto, endpoint, state)| Connection {
-            pid,
-            process: process.into(),
-            proto: proto.into(),
-            endpoint: endpoint.into(),
-            state: state.into(),
-        })
-        .collect();
-        self.apps = [
-            ("Firefox", "135.0", 412),
-            ("Google Chrome", "131.0.6778", 1290),
-            ("Open Task Manager", "0.1.0", 24),
-            ("Spotify", "1.2.52", 386),
-            ("Visual Studio Code", "1.96.2", 640),
-            ("Zoom", "6.3.0", 290),
-        ]
-        .into_iter()
-        .map(|(name, version, mb)| InstalledApp {
-            name: name.into(),
-            version: version.into(),
-            path: PathBuf::from(format!("/Applications/{name}.app")),
-            bytes: Some(mb * MB),
-            source: "Application",
-        })
-        .collect();
-        self.power = Some(Power {
-            has_battery: true,
-            source: "Battery Power".into(),
-            percent: Some(82),
-            status: "discharging".into(),
-            watts: Some(-9.6),
-            voltage: Some(12.71),
-            cycles: Some(143),
-            health: Some(97.0),
-            temperature: Some(31.2),
-            low_power_mode: false,
-            thermal: "Nominal".into(),
-        });
+        platform::demo_data::activate();
+        let machine = platform::demo_data::machine();
+        self.system = machine.system;
+        self.startup = machine.startup;
+        self.services = machine.services;
+        self.connections = machine.connections;
+        self.apps = machine.apps;
+        self.power = Some(machine.power);
         let folders = |at: u64, scale: u64| Scan {
             at,
-            items: [
-                ("Projects", 84),
-                ("Library", 61),
-                ("Movies", 38),
-                ("Downloads", 22),
-                ("Pictures", 17),
-                ("Documents", 9),
-                ("Music", 6),
-                ("Desktop", 2),
-            ]
-            .into_iter()
-            .map(|(name, gb)| FolderSize {
-                path: format!("/Users/alex/{name}"),
-                bytes: gb * GB * scale / 100,
-            })
-            .collect(),
+            items: machine
+                .folders
+                .iter()
+                .map(|&(name, gb)| FolderSize {
+                    path: format!("{}/{name}", machine.home),
+                    bytes: gb * GB * scale / 100,
+                })
+                .collect(),
         };
         let now = crate::sysops::now_secs();
         self.scans = vec![folders(now - 3600, 100), folders(now - 86_400 * 3, 96)];
@@ -778,8 +173,9 @@ impl OtmApp {
         })
         .detach();
 
-        // The scene script.
+        // The scene script. `OTM_DEMO_CAPTIONS=0` hides the captions (for store screenshots).
         let steps = script(&scene);
+        let hide_captions = std::env::var("OTM_DEMO_CAPTIONS").is_ok_and(|v| v == "0");
         cx.spawn(async move |this, cx| {
             // Let the window, icons and first frames settle before the recording-worthy part.
             cx.background_executor()
@@ -789,6 +185,9 @@ impl OtmApp {
                 if this
                     .update(cx, |app, cx| {
                         step(app, cx);
+                        if hide_captions {
+                            app.demo_caption = None;
+                        }
                         cx.notify();
                     })
                     .is_err()
@@ -862,15 +261,10 @@ fn key(nav: Nav, text: &'static str) -> impl Fn(&mut OtmApp, &mut Context<OtmApp
 
 /// The steps of a scene: (milliseconds to hold after the step, step).
 fn script(scene: &str) -> Vec<(u64, Step)> {
+    let c = platform::demo_data::machine().captions;
     match scene {
         "overview" => vec![
-            step(
-                2600,
-                page(
-                    Page::Overview,
-                    "Open Task Manager — a native, open-source system monitor for macOS",
-                ),
-            ),
+            step(2600, page(Page::Overview, c.intro)),
             step(2200, group(GroupBy::None, "Every process, live")),
             step(
                 3000,
@@ -886,13 +280,7 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
                     "Grouped by the app that owns them, with memory summed per app",
                 ),
             ),
-            step(
-                2600,
-                group(
-                    GroupBy::Category,
-                    "Or by category: macOS subsystems, apps and tools",
-                ),
-            ),
+            step(2600, group(GroupBy::Category, c.category)),
             step(1800, page(Page::Users, "Who is using what")),
             step(
                 1800,
@@ -903,22 +291,10 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
                 page(Page::Disk, "Disk space, largest folders and scan history"),
             ),
             step(1800, page(Page::Power, "Battery, power and thermal state")),
-            step(
-                2000,
-                page(
-                    Page::Settings,
-                    "Light or dark, clear or tinted glass, text size, update speed",
-                ),
-            ),
+            step(2000, page(Page::Settings, c.settings)),
         ],
         "process-tree" => vec![
-            step(
-                2600,
-                group(
-                    GroupBy::Parent,
-                    "launchd at the root: the operating system's processes and yours",
-                ),
-            ),
+            step(2600, group(GroupBy::Parent, c.root)),
             step(1800, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
                 app.toggle_branch(1, false);
                 app.set_cursor(Some(RowId::Pid(1)));
@@ -938,10 +314,10 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
                 app.set_cursor(Some(RowId::Group("split:1/Google Chrome".into())));
                 app.demo_caption = Some("An app and all of its helpers, together".into());
             }),
-            step(2600, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+            step(2600, move |app: &mut OtmApp, _: &mut Context<OtmApp>| {
                 app.toggle_group("split:0", false);
                 app.set_cursor(Some(RowId::Group("split:0".into())));
-                app.demo_caption = Some("macOS's own processes, grouped by subsystem".into());
+                app.demo_caption = Some(c.system.into());
             }),
         ],
         "memory" => vec![
@@ -1027,13 +403,11 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
                 app.layout.descending = true;
                 app.rebuild_rows();
             }),
-            step(2800, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
+            step(2800, move |app: &mut OtmApp, _: &mut Context<OtmApp>| {
                 let id = RowId::Pid(1604);
                 app.set_cursor(Some(id.clone()));
                 open_menu_at(app, id);
-                app.demo_caption = Some(
-                    "Quit, force quit, suspend, reveal in Finder, show connections, copy…".into(),
-                );
+                app.demo_caption = Some(c.menu.into());
             }),
             step(2400, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
                 app.context_menu = None;
@@ -1131,13 +505,7 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
             }),
         ],
         "pages" => vec![
-            step(
-                1900,
-                page(
-                    Page::Startup,
-                    "Startup items: enable or disable your launch agents",
-                ),
-            ),
+            step(1900, page(Page::Startup, c.startup)),
             step(1900, page(Page::Services, "Services: restart or stop")),
             step(
                 1900,
@@ -1167,11 +535,16 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
 }
 
 /// Scroll the row to the top of the list and open its right-click menu just below it, clear of the caption.
+/// The row's window position follows the list's measured bounds, clamped the way the scroll will clamp.
 fn open_menu_at(app: &mut OtmApp, id: RowId) {
     app.set_cursor(Some(id.clone()));
     let ix = app.row_index(&id);
+    let list = app.scroll.0.borrow().base_handle.clone();
+    let offset = ix as f32 * ROW_HEIGHT;
+    let scrolled = offset.min(f32::from(list.max_offset().height));
+    let row_top = f32::from(list.bounds().origin.y) + offset - scrolled;
     app.scroll.scroll_to_item(ix, gpui::ScrollStrategy::Top);
-    app.context_menu = Some((id, point(px(420.), px(172.))));
+    app.context_menu = Some((id, point(px(420.), px(row_top + ROW_HEIGHT))));
 }
 
 fn typed(text: &'static str, caption: &'static str) -> impl Fn(&mut OtmApp, &mut Context<OtmApp>) {

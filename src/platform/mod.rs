@@ -27,6 +27,54 @@ pub use imp::plist_program;
 #[cfg(all(target_os = "linux", test))]
 pub use linux::host;
 
+/// The fictional machine of `otm --demo`: the data each OS shows, moved here from the shared scripts.
+pub mod demo_data {
+    pub use super::imp::demo_data::{activate, machine};
+}
+
+/// One fictional process of demo mode: its parent, owner, load, memory and executable.
+pub struct Seed {
+    pub pid: u32,
+    pub ppid: u32,
+    pub name: &'static str,
+    pub user: &'static str,
+    pub cpu: f32,
+    pub mem_mb: u64,
+    pub path: &'static str,
+}
+
+/// The scene captions that name the OS's own things (launch agents, the menu's reveal action).
+pub struct Captions {
+    pub intro: &'static str,
+    pub category: &'static str,
+    pub root: &'static str,
+    pub system: &'static str,
+    pub menu: &'static str,
+    pub startup: &'static str,
+    pub settings: &'static str,
+}
+
+/// A fictional machine for demo mode: its processes, fixed system facts and the lists the pages show.
+pub struct Machine {
+    pub seeds: &'static [Seed],
+    pub host: &'static str,
+    pub os: &'static str,
+    pub cpu_brand: &'static str,
+    pub memory_base: u64,
+    pub memory_total: u64,
+    pub disk_total: u64,
+    pub disk_free: u64,
+    pub system: crate::sysops::SystemInfo,
+    pub startup: Vec<crate::sysops::StartupItem>,
+    pub services: Vec<crate::sysops::Service>,
+    pub connections: Vec<crate::sysops::Connection>,
+    pub apps: Vec<crate::sysops::InstalledApp>,
+    pub power: crate::sysops::Power,
+    pub home: &'static str,
+    pub folders: &'static [(&'static str, u64)],
+    pub captions: Captions,
+}
+
 pub enum WindowRole {
     Main,
     Popout,
