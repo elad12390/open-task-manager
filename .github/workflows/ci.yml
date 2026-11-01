@@ -44,7 +44,7 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "dist/Open Task Manager.app/Contents/Info.plist"
           hdiutil imageinfo dist/OpenTaskManager-*.dmg | grep -E '^Format:'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: OpenTaskManager-dmg
           path: dist/*.dmg
