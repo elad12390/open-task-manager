@@ -79,9 +79,8 @@ network, disk, services and startup items. Source: https://github.com/elad12390/
   host's process table. Mission Center (io.missioncenter.MissionCenter) requests the same permission for the same
   reason. Services are listed and controlled with `systemctl` on the host this way too, so the app needs no
   system-bus access to systemd.
-- `--system-talk-name=org.freedesktop.PolicyKit1`: ask for authorization when an action needs root, so the app itself never runs as root.
-- `--system-talk-name=org.freedesktop.UPower`: battery and power state.
-- `--talk-name=org.freedesktop.FileManager1`: show a file in the file manager.
+  This is the only D-Bus permission: actions that need root run `pkexec` on the host (polkit asks each time, the
+  app never runs as root), "show in file manager" runs `gdbus` on the host, and power data comes from `/sys`.
 - `--socket=wayland`, `--socket=fallback-x11`, `--device=dri`, `--share=ipc`: the window and GPU.
 
 No network permission and no filesystem permission: the app makes no network requests, and disk usage comes

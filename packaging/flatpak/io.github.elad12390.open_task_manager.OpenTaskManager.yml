@@ -12,9 +12,6 @@ finish-args:
   - --device=dri
   # Host processes, services and disk usage are read through flatpak-spawn --host (src/platform/linux/host.rs).
   - --talk-name=org.freedesktop.Flatpak
-  - --system-talk-name=org.freedesktop.PolicyKit1
-  - --system-talk-name=org.freedesktop.UPower
-  - --talk-name=org.freedesktop.FileManager1
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
