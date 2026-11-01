@@ -4,6 +4,7 @@
 
 pub mod apps;
 pub mod host;
+mod hostproc;
 pub mod icons;
 mod net;
 mod owners;
@@ -16,7 +17,6 @@ mod startup;
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use gpui::{TitlebarOptions, WindowBackgroundAppearance};
@@ -27,7 +27,7 @@ use crate::metrics::ProcessInfo;
 pub use apps::{installed_apps, trash_app};
 pub use net::connections;
 pub use power::power;
-pub use proc::{is_kernel_process, process_state, process_table, system_info};
+pub use proc::{is_kernel_process, own_pid, process_state, process_table, system_info};
 pub use services::{control_service, services};
 pub use startup::{startup_items, toggle_startup};
 
@@ -51,10 +51,28 @@ pub const CAPS: Caps = Caps {
     show_app_source: true,
 };
 
-/// Runs a command on this machine and returns its output. Every command the platform runs goes
-/// through here, so running them on the host from inside a sandbox changes one place.
+/// Runs a command on the host and returns its output (see `host::run`).
 fn host(cmd: &str, args: &[&str]) -> Result<String, String> {
-    crate::sysops::run(cmd, args)
+    let argv: Vec<&str> = std::iter::once(cmd).chain(args.iter().copied()).collect();
+    host::run(&argv).map_err(|e| e.to_string())
+}
+
+/// The process table of a sandboxed app, read from the host in one command (None outside a sandbox,
+/// or when the host cannot be asked: the shared code then reads what the process can see).
+pub fn host_processes() -> Option<Vec<ProcessInfo>> {
+    host::sandboxed().then(hostproc::sample).flatten()
+}
+
+/// Sends a signal to a process of the host's table, through the host inside a sandbox.
+pub fn signal(pid: u32, sig: i32) -> Result<(), String> {
+    if host::sandboxed() {
+        return host("kill", &[&format!("-{sig}"), &pid.to_string()]).map(|_| ());
+    }
+    if unsafe { libc::kill(pid as i32, sig) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PID {pid}: {}", std::io::Error::last_os_error()))
+    }
 }
 
 pub fn data_root() -> PathBuf {
@@ -67,7 +85,10 @@ pub fn data_root() -> PathBuf {
 
 /// Open a folder in the file manager.
 pub fn open_path(path: &Path) {
-    let _ = Command::new("xdg-open").arg(path).spawn();
+    let path = path.to_string_lossy().into_owned();
+    std::thread::spawn(move || {
+        let _ = host("xdg-open", &[&path]);
+    });
 }
 
 /// Select a file in the file manager (through the FileManager1 D-Bus interface, which highlights
@@ -94,7 +115,7 @@ pub fn reveal(path: &str) {
         .is_ok();
         if !shown {
             let parent = Path::new(&path).parent().unwrap_or(Path::new("/"));
-            let _ = Command::new("xdg-open").arg(parent).spawn();
+            let _ = host("xdg-open", &[&parent.to_string_lossy()]);
         }
     });
 }

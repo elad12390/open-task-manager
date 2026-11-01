@@ -2,13 +2,9 @@
 //! shows the app that runs it, and system processes, terminals and folders get the theme's generic
 //! icons. Keys are a desktop file, an executable or folder path, or `icon-name:<name>`.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 
-use super::apps;
+use super::{apps, host};
 use crate::sysops::home;
 
 /// The generic user icon (accounts' pictures are not read yet).
@@ -119,34 +115,37 @@ fn icon_roots(home: &Path) -> Vec<PathBuf> {
         .map(PathBuf::from),
     );
     roots.push(home.join(".local/share/flatpak/exports/share/icons"));
-    roots.into_iter().filter(|p| p.is_dir()).collect()
+    roots.into_iter().filter(|p| host::is_dir(p)).collect()
 }
 
 fn pixmap_dirs() -> Vec<PathBuf> {
     ["/usr/share/pixmaps", "/run/host/usr/share/pixmaps"]
         .iter()
         .map(PathBuf::from)
-        .filter(|p| p.is_dir())
+        .filter(|p| host::is_dir(p))
         .collect()
 }
 
 /// The icon theme in use: GNOME's setting, else KDE's, else hicolor.
 fn theme_name(home: &Path) -> String {
-    let gnome = Command::new("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "icon-theme"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .trim_matches('\'')
-                .to_string()
-        })
-        .filter(|s| !s.is_empty());
+    let gnome = host::output(&[
+        "gsettings",
+        "get",
+        "org.gnome.desktop.interface",
+        "icon-theme",
+    ])
+    .ok()
+    .filter(|o| o.status.success())
+    .map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .trim_matches('\'')
+            .to_string()
+    })
+    .filter(|s| !s.is_empty());
     gnome
         .or_else(|| {
-            let text = fs::read_to_string(home.join(".config/kdeglobals")).ok()?;
+            let text = host::read(home.join(".config/kdeglobals")).ok()?;
             ini_get(&text, "Icons", "Theme").map(str::to_string)
         })
         .unwrap_or_else(|| "hicolor".into())
@@ -180,7 +179,7 @@ fn theme_chain(roots: &[PathBuf], theme: &str) -> Vec<String> {
         let current = chain[i].clone();
         i += 1;
         for root in roots {
-            let Ok(text) = fs::read_to_string(root.join(&current).join("index.theme")) else {
+            let Ok(text) = host::read(root.join(&current).join("index.theme")) else {
                 continue;
             };
             let parents = ini_get(&text, "Icon Theme", "Inherits").unwrap_or("");
@@ -205,20 +204,15 @@ pub struct ThemeDir {
 }
 
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
-    fs::read_dir(dir)
-        .map(|r| {
-            r.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect()
-        })
+    host::read_dir(dir)
+        .map(|r| r.into_iter().filter(|p| host::is_dir(p)).collect())
         .unwrap_or_default()
 }
 
 /// The directories of a theme, from its `index.theme`, or by scanning `<size>/<context>` folders
 /// when it has none.
 pub fn theme_dirs(base: &Path) -> Vec<ThemeDir> {
-    let Ok(text) = fs::read_to_string(base.join("index.theme")) else {
+    let Ok(text) = host::read(base.join("index.theme")) else {
         return scan_theme_dirs(base);
     };
     let directories = ini_get(&text, "Icon Theme", "Directories").unwrap_or("");
@@ -238,7 +232,7 @@ pub fn theme_dirs(base: &Path) -> Vec<ThemeDir> {
                 size,
             }
         })
-        .filter(|d| d.path.is_dir())
+        .filter(|d| host::is_dir(&d.path))
         .collect()
 }
 
@@ -298,7 +292,7 @@ impl Theme {
                 roots
                     .iter()
                     .map(|r| r.join(t))
-                    .filter(|base| base.is_dir())
+                    .filter(|base| host::is_dir(base))
                     .flat_map(|base| theme_dirs(&base))
                     .collect()
             })
@@ -319,7 +313,7 @@ impl Theme {
     pub fn lookup(&self, icon: &str) -> Option<PathBuf> {
         if icon.starts_with('/') {
             let path = PathBuf::from(icon);
-            return path.is_file().then_some(path);
+            return host::is_file(&path).then_some(path);
         }
         let name = strip_icon_ext(icon);
         for dirs in &self.chain {
@@ -328,7 +322,7 @@ impl Theme {
                 .flat_map(|dir| {
                     ["svg", "png"].into_iter().filter_map(move |ext| {
                         let path = dir.path.join(format!("{name}.{ext}"));
-                        path.is_file().then(|| (rank(ext, dir.size), path))
+                        host::is_file(&path).then(|| (rank(ext, dir.size), path))
                     })
                 })
                 .min_by_key(|(rank, _)| *rank);
@@ -339,12 +333,12 @@ impl Theme {
         self.pixmaps
             .iter()
             .flat_map(|dir| ["svg", "png"].map(|ext| dir.join(format!("{name}.{ext}"))))
-            .find(|p| p.is_file())
+            .find(|p| host::is_file(p))
     }
 }
 
 fn desktop_icon(path: &Path) -> Option<String> {
-    let text = fs::read_to_string(path).ok()?;
+    let text = host::read(path).ok()?;
     apps::parse_desktop(path, &text, &[])?.icon
 }
 
@@ -357,7 +351,7 @@ fn icon_file(key: &str, theme: &Theme, home: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;
     }
-    if path.is_dir() {
+    if host::is_dir(path) {
         return theme.lookup(folder_icon_name(path, home));
     }
     if key.ends_with(".desktop") {
@@ -371,14 +365,14 @@ fn icon_file(key: &str, theme: &Theme, home: &Path) -> Option<PathBuf> {
 /// Write a 32×32 PNG of an icon: PNGs are copied (GPUI scales them) and SVGs are rasterized.
 pub fn write_png(src: &Path, png: &Path) -> bool {
     match src.extension().and_then(|e| e.to_str()) {
-        Some("png") => fs::copy(src, png).is_ok(),
+        Some("png") => host::copy(src, png).is_ok(),
         Some("svg") => rasterize(src, png),
         _ => false,
     }
 }
 
 fn rasterize(svg: &Path, png: &Path) -> bool {
-    let Ok(data) = fs::read(svg) else {
+    let Ok(data) = host::read_bytes(svg) else {
         return false;
     };
     let Ok(tree) = resvg::usvg::Tree::from_data(&data, &resvg::usvg::Options::default()) else {

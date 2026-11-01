@@ -105,11 +105,7 @@ pub fn send_signal(pid: u32, sig: i32) -> Result<(), String> {
     if pid <= 1 || crate::platform::is_kernel_process(pid) {
         return Err("Can't signal launchd or the kernel".into());
     }
-    if unsafe { libc::kill(pid as i32, sig) } == 0 {
-        Ok(())
-    } else {
-        Err(format!("PID {pid}: {}", std::io::Error::last_os_error()))
-    }
+    crate::platform::signal(pid, sig)
 }
 
 // ---------- network ----------

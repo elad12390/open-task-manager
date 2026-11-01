@@ -2,7 +2,7 @@
 //! (temperatures) and `powerprofilesctl` (the low-power profile). A desktop without a battery reads
 //! as AC power with no battery figures.
 
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use super::host;
 use crate::sysops::Power;
@@ -56,34 +56,33 @@ pub fn thermal_summary(zones: &[(String, f64)]) -> String {
 }
 
 fn supplies() -> Vec<HashMap<String, String>> {
-    let Ok(entries) = fs::read_dir("/sys/class/power_supply") else {
+    let Ok(entries) = host::read_dir("/sys/class/power_supply") else {
         return Vec::new();
     };
     entries
-        .flatten()
-        .filter_map(|e| fs::read_to_string(e.path().join("uevent")).ok())
+        .iter()
+        .filter_map(|dir| host::read(dir.join("uevent")).ok())
         .map(|text| parse_uevent(&text))
         .collect()
 }
 
 fn thermal_zones() -> Vec<(String, f64)> {
-    let Ok(entries) = fs::read_dir("/sys/class/thermal") else {
+    let Ok(entries) = host::read_dir("/sys/class/thermal") else {
         return Vec::new();
     };
     let dirs: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.join("temp").exists())
+        .into_iter()
+        .filter(|p| host::exists(p.join("temp")))
         .collect();
     dirs.iter()
         .filter_map(|dir| {
-            let celsius = fs::read_to_string(dir.join("temp"))
+            let celsius = host::read(dir.join("temp"))
                 .ok()?
                 .trim()
                 .parse::<f64>()
                 .ok()?
                 / 1000.;
-            let kind = fs::read_to_string(dir.join("type")).unwrap_or_default();
+            let kind = host::read(dir.join("type")).unwrap_or_default();
             Some((kind.trim().to_string(), celsius))
         })
         .collect()

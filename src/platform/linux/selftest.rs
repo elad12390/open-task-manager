@@ -1,8 +1,8 @@
 //! Linux checks for `otm --selftest`: the operating system / your processes split and owners, autostart
 //! entries, your systemd user units, signals on throwaway processes, sockets, folder sizes and cores.
 
-use super::host;
-use std::{fs, net::TcpListener, path::PathBuf, process::Command, thread::sleep, time::Duration};
+use super::{host, startup::config_home};
+use std::{net::TcpListener, path::PathBuf, thread::sleep, time::Duration};
 
 use crate::{
     categories,
@@ -24,15 +24,8 @@ pub fn unmeasured(p: &ProcessInfo) -> bool {
     p.memory == 0 && !p.path.is_empty()
 }
 
-fn config_home() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| sysops::home().join(".config"))
-}
-
 fn alive(pid: u32) -> bool {
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    host::run(&["kill", "-0", &pid.to_string()]).is_ok()
 }
 
 pub fn app_checks(r: &mut Report, snap: &Snapshot) {
@@ -58,7 +51,7 @@ pub fn app_checks(r: &mut Report, snap: &Snapshot) {
     );
 
     let owners = categories::owners(&snap.processes);
-    let me = std::process::id();
+    let me = super::own_pid();
     let mine = owners.get(&me).cloned().unwrap_or_default();
     let system = snap
         .processes
@@ -88,10 +81,10 @@ pub fn app_checks(r: &mut Report, snap: &Snapshot) {
 fn autostart(r: &mut Report) {
     let dir = config_home().join("autostart");
     let file = dir.join(AUTOSTART);
-    let written = fs::create_dir_all(&dir).and_then(|_| {
-        fs::write(
+    let written = host::create_dir_all(&dir).and_then(|_| {
+        host::write(
             &file,
-            "[Desktop Entry]\nType=Application\nName=OTM Selftest\nExec=/bin/sleep 3600\n",
+            b"[Desktop Entry]\nType=Application\nName=OTM Selftest\nExec=/bin/sleep 3600\n",
         )
     });
     if let Err(e) = written {
@@ -108,7 +101,7 @@ fn autostart(r: &mut Report) {
     let disabled = listed().is_some_and(|s| !s.loaded);
     let on = sysops::toggle_startup(&file, true);
     let enabled = listed().is_some_and(|s| s.loaded);
-    fs::remove_file(&file).ok();
+    host::remove_file(&file);
     r.check(
         "autostart toggle",
         start == Some(true) && off.is_ok() && disabled && on.is_ok() && enabled,
@@ -118,19 +111,19 @@ fn autostart(r: &mut Report) {
 
 fn user_unit(r: &mut Report) {
     const NAME: &str = "user unit restart/stop x3";
-    if let Err(reason) = sysops::run("systemctl", &["--user", "show-environment"]) {
+    if let Err(reason) = host::run(&["systemctl", "--user", "show-environment"]) {
         println!("SKIP {NAME}: no systemd user manager here ({reason})");
         return;
     }
     let dir = config_home().join("systemd/user");
-    let file = dir.join(UNIT);
-    let written = fs::create_dir_all(&dir)
-        .and_then(|_| fs::write(&file, "[Service]\nExecStart=/bin/sleep 3600\n"));
+    let file: PathBuf = dir.join(UNIT);
+    let written = host::create_dir_all(&dir)
+        .and_then(|_| host::write(&file, b"[Service]\nExecStart=/bin/sleep 3600\n"));
     if let Err(e) = written {
         r.check(NAME, false, format!("cannot write {}: {e}", file.display()));
         return;
     }
-    sysops::run("systemctl", &["--user", "daemon-reload"]).ok();
+    host::run(&["systemctl", "--user", "daemon-reload"]).ok();
     let pid_of = || {
         sysops::services()
             .into_iter()
@@ -152,8 +145,8 @@ fn user_unit(r: &mut Report) {
         }
         cycles.push((res.is_ok() && up, stop.is_ok() && gone, pid));
     }
-    fs::remove_file(&file).ok();
-    sysops::run("systemctl", &["--user", "daemon-reload"]).ok();
+    host::remove_file(&file);
+    host::run(&["systemctl", "--user", "daemon-reload"]).ok();
     r.check(
         NAME,
         cycles.iter().all(|(a, b, _)| *a && *b),
@@ -162,8 +155,15 @@ fn user_unit(r: &mut Report) {
 }
 
 fn signals(r: &mut Report, snap: &Snapshot) {
-    let mut child = Command::new("/bin/sleep").arg("600").spawn().unwrap();
-    let pid = child.id();
+    let started = host::run(&["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"]);
+    let Some(pid) = started.ok().and_then(|out| out.trim().parse::<u32>().ok()) else {
+        r.check(
+            "suspend and resume",
+            false,
+            "cannot start a test process on the host",
+        );
+        return;
+    };
     let stop = sysops::send_signal(pid, libc::SIGSTOP);
     sleep(Duration::from_millis(150));
     let suspended = sysops::process_state(pid).as_deref() == Some("T");
@@ -171,11 +171,10 @@ fn signals(r: &mut Report, snap: &Snapshot) {
     sleep(Duration::from_millis(150));
     let resumed = sysops::process_state(pid).is_some_and(|s| s != "T");
     let kill = sysops::signal_process(pid, true);
-    let status = child.wait().ok();
     r.check(
         "suspend and resume",
         stop.is_ok() && suspended && cont.is_ok() && resumed && kill.is_ok(),
-        format!("pid {pid}: suspended {suspended}, resumed {resumed}, exit {status:?}"),
+        format!("pid {pid}: suspended {suspended}, resumed {resumed}, killed {kill:?}"),
     );
     match snap
         .processes
@@ -203,7 +202,7 @@ fn sockets(r: &mut Report) {
         return;
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    let me = std::process::id();
+    let me = super::own_pid();
     let conns = sysops::connections();
     let mine = conns
         .iter()
@@ -220,10 +219,10 @@ fn sockets(r: &mut Report) {
 }
 
 fn folder_size(r: &mut Report) {
-    let dir = std::env::temp_dir().join(format!("otm-selftest-size-{}", std::process::id()));
+    let dir = sysops::data_dir().join(format!("otm-selftest-size-{}", std::process::id()));
     let blob = 2 * 1024 * 1024;
-    let written =
-        fs::create_dir_all(&dir).and_then(|_| fs::write(dir.join("blob.bin"), vec![1u8; blob]));
+    let written = host::create_dir_all(&dir)
+        .and_then(|_| host::write(dir.join("blob.bin"), &vec![1u8; blob]));
     let sizes = if written.is_ok() {
         // No size known up front, so this measures the folder itself.
         sysops::app_sizes(&[sysops::InstalledApp {
@@ -236,11 +235,11 @@ fn folder_size(r: &mut Report) {
     } else {
         vec![None]
     };
-    fs::remove_dir_all(&dir).ok();
+    host::remove_dir_all(&dir);
     r.check(
         "folder size",
         sizes[0].is_some_and(|b| b >= blob as u64),
-        format!("a 2 MB temp folder measures {:?}", sizes[0]),
+        format!("a 2 MB folder in the data folder measures {:?}", sizes[0]),
     );
 }
 

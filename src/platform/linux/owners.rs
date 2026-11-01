@@ -2,7 +2,9 @@
 //! Flatpak and Snap apps, GNOME and KDE app scopes, user and system services, and the `Name` of the
 //! app's desktop entry when one is installed.
 
-use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex};
+use std::{collections::HashMap, path::PathBuf, sync::Mutex};
+
+use super::host;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unit {
@@ -138,7 +140,7 @@ pub fn desktop_name(id: &str) -> Option<String> {
         return name.clone();
     }
     let name = desktop_dirs().iter().find_map(|dir| {
-        let text = fs::read_to_string(dir.join(format!("{id}.desktop"))).ok()?;
+        let text = host::read(dir.join(format!("{id}.desktop"))).ok()?;
         desktop_entry_name(&text)
     });
     names.insert(id.to_string(), name.clone());
