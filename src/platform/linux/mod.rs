@@ -3,6 +3,7 @@
 //! desktop entries for installed apps.
 
 pub mod apps;
+pub mod demo_data;
 pub mod host;
 mod hostproc;
 pub mod icons;
@@ -195,8 +196,13 @@ pub fn shows_volume(mount: &Path, fs_type: &str) -> bool {
 /// operating system's. Your apps, their helpers and your command-line tools are filed under the app
 /// or tool they belong to.
 pub fn classify(p: &ProcessInfo) -> (&'static str, String) {
-    let cgroup = proc::cgroup(p.pid).unwrap_or_default();
-    classify_with(p, &cgroup, owners::desktop_name)
+    match demo_data::cgroup(p.pid) {
+        Some(cgroup) => classify_with(p, cgroup, demo_data::desktop_name),
+        None => {
+            let cgroup = proc::cgroup(p.pid).unwrap_or_default();
+            classify_with(p, &cgroup, owners::desktop_name)
+        }
+    }
 }
 
 fn classify_with(

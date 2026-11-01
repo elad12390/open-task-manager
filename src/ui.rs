@@ -158,6 +158,19 @@ pub fn ellipsize(cx: &gpui::App, text: String, width: f32, font_size: f32) -> St
         .to_string()
 }
 
+/// The width in px of `text` on one line in the system font at `font_size` px and `weight`.
+pub fn text_width(cx: &gpui::App, text: &str, font_size: f32, weight: gpui::FontWeight) -> f32 {
+    let system = cx.text_system();
+    let font = system.resolve_font(&gpui::Font {
+        weight,
+        ..gpui::font(".SystemUIFont")
+    });
+    text.chars()
+        .filter_map(|ch| system.advance(font, px(font_size), ch).ok())
+        .map(|size| f32::from(size.width))
+        .sum()
+}
+
 /// Like [`ellipsize`], but keeps the start and the end with "…" in the middle, for paths and
 /// endpoints where the end (the file or port) matters most.
 pub fn ellipsize_middle(cx: &gpui::App, text: String, width: f32, font_size: f32) -> String {

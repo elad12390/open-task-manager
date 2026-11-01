@@ -9,6 +9,8 @@ mod copy_pass_tests;
 #[cfg(test)]
 mod crash_fix_tests;
 mod demo;
+#[cfg(test)]
+mod demo_linux_tests;
 mod filter;
 mod filter_bar;
 #[cfg(test)]
@@ -119,7 +121,15 @@ fn main() {
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             menus::install(cx);
-            let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
+            // `OTM_WINDOW_SIZE=WxH` sizes the window for captures (the capture script wants a wider one).
+            let (w, h) = std::env::var("OTM_WINDOW_SIZE")
+                .ok()
+                .and_then(|s| {
+                    let (w, h) = s.split_once('x')?;
+                    Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
+                })
+                .unwrap_or((1240., 800.));
+            let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
             let chrome = platform::window_chrome(platform::WindowRole::Main);
             cx.open_window(
                 WindowOptions {

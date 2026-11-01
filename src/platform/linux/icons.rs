@@ -40,6 +40,9 @@ const KERNEL_THREADS: &[&str] = &[
 
 /// The desktop file of the app an executable belongs to.
 pub fn bundle_of(path: &str) -> Option<String> {
+    if let Some(icon) = super::demo_data::icon_of(path) {
+        return Some(icon);
+    }
     if !path.starts_with('/') || path.ends_with(".desktop") {
         return None;
     }

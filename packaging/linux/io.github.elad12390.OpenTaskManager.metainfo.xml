@@ -36,7 +36,7 @@
   <url type="vcs-browser">https://github.com/elad12390/open-task-manager</url>
   <screenshots>
     <screenshot type="default">
-      <caption>The overview: CPU, memory, network, disk and system information</caption>
+      <caption>Every process with its app, CPU, memory and disk activity</caption>
       <image>https://raw.githubusercontent.com/elad12390/open-task-manager/main/packaging/linux/screenshots/overview.png</image>
     </screenshot>
     <screenshot>
@@ -103,7 +103,7 @@
         <li>Overview, Users, Connections, Power, Startup items, Services, Installed apps, Disk space, Benchmarks, Flight recorder, Settings, popout and screensaver.</li>
         <li>Menu bar with update-speed controls and shortcuts.</li>
         <li>A filter field with a caret and focus ring (⌘F), match counts while filtering, and an empty state with Clear filters; a two-row toolbar that never overflows; long names end in "…".</li>
-        <li>`otm --demo &lt;scene&gt;`: a fictional Mac for screenshots and recordings; nothing real is read or signalled.</li>
+        <li>`otm --demo &lt;scene&gt;`: a fictional computer for screenshots and recordings; nothing real is read or signalled.</li>
         </ul>
       </description>
     </release>

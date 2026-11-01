@@ -19,7 +19,7 @@ use crate::{
     ui,
 };
 
-const ROW_HEIGHT: f32 = 26.;
+pub(crate) const ROW_HEIGHT: f32 = 26.;
 const HEADER_HEIGHT: f32 = 30.;
 
 pub enum Row {
@@ -1735,10 +1735,28 @@ impl OtmApp {
                                         .child(count.to_string()),
                                 )
                                 .when_some(note, |d, note| {
+                                    // GPUI's own truncate() keeps the width it measured before the row
+                                    // had one, so the note is shortened up front to the space left
+                                    // after the cell padding (16), indent, chevron and icon (14 each),
+                                    // label, count badge (8 padding) and the five 4 px gaps.
+                                    let used = 16.
+                                        + depth as f32 * 14.
+                                        + 28.
+                                        + ui::text_width(cx, &label, 14., FontWeight::SEMIBOLD)
+                                        + 8.
+                                        + ui::text_width(
+                                            cx,
+                                            &count.to_string(),
+                                            12.,
+                                            FontWeight::NORMAL,
+                                        )
+                                        + 20.;
+                                    let fitted =
+                                        ui::ellipsize(cx, note.to_string(), c.width - used, 12.);
                                     d.child(
                                         div()
-                                            .min_w_0()
-                                            .truncate()
+                                            .flex_shrink_0()
+                                            .whitespace_nowrap()
                                             .text_xs()
                                             .font_weight(FontWeight::NORMAL)
                                             .text_color(if selected {
@@ -1746,7 +1764,7 @@ impl OtmApp {
                                             } else {
                                                 t.text_dim.into()
                                             })
-                                            .child(note),
+                                            .child(fitted),
                                     )
                                 })
                         } else {
