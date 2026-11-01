@@ -805,6 +805,7 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     let pid = victim.0.id();
 
     let (view, cx) = cx.add_window_view(OtmApp::new);
+    view.update(cx, |app, _| app.icons_enabled = true);
     cx.run_until_parked();
     view.update(cx, |app, cx| {
         app.layout.group_by = crate::columns::GroupBy::None;

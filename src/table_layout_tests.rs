@@ -303,3 +303,162 @@ fn listing_scrollbar_appears_when_columns_overflow(cx: &mut TestAppContext) {
     let bar = bounds(cx, "listing-hbar");
     assert!(bar.size.width > gpui::px(0.), "the horizontal bar is drawn");
 }
+
+/// Opens the window on `page` with no data of its own (the listing's rows come from the app).
+fn open_page(cx: &mut TestAppContext, page: Page) -> (Entity<OtmApp>, &mut VisualTestContext) {
+    let (view, cx) = cx.add_window_view(OtmApp::new);
+    view.update(cx, |app, _| app.icons_enabled = false);
+    cx.executor().advance_clock(Duration::from_millis(1500));
+    cx.run_until_parked();
+    view.update(cx, |app, cx| {
+        app.page = page;
+        app.rebuild_listing();
+        cx.notify();
+    });
+    (view, cx)
+}
+
+fn table_titles(
+    view: &Entity<OtmApp>,
+    cx: &mut VisualTestContext,
+    table: &'static str,
+) -> Vec<&'static str> {
+    view.read_with(cx, |app, _| {
+        app.table_layouts
+            .get(table)
+            .unwrap()
+            .columns
+            .iter()
+            .map(|c| c.title)
+            .collect()
+    })
+}
+
+fn table_width(
+    view: &Entity<OtmApp>,
+    cx: &mut VisualTestContext,
+    table: &'static str,
+    title: &str,
+) -> f32 {
+    view.read_with(cx, |app, _| {
+        app.table_layouts
+            .get(table)
+            .unwrap()
+            .columns
+            .iter()
+            .find(|c| c.title == title)
+            .unwrap()
+            .width
+    })
+}
+
+#[gpui::test]
+fn services_header_drag_reorders_and_edge_resize_saves(cx: &mut TestAppContext) {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = data_dir("services");
+    let (view, cx) = open_page(cx, Page::Services);
+    assert_eq!(
+        table_titles(&view, cx, "services"),
+        ["Label", "PID", "Last Exit", "State"]
+    );
+
+    let from = center(bounds(cx, "sort-services-0"));
+    let to = center(bounds(cx, "sort-services-2"));
+    drag(cx, from, to);
+    assert_eq!(
+        table_titles(&view, cx, "services"),
+        ["PID", "Last Exit", "Label", "State"]
+    );
+    assert_eq!(
+        saved_titles(&dir, "services"),
+        ["PID", "Last Exit", "Label", "State"]
+    );
+
+    let from = center(bounds(cx, "resize-services-3"));
+    drag(cx, from, point(from.x + gpui::px(30.), from.y));
+    let state = table_width(&view, cx, "services", "State");
+    assert!((state - 130.).abs() < 1., "State {state}");
+    let stored = saved(&dir)["services"]["columns"][3]["width"]
+        .as_f64()
+        .unwrap() as f32;
+    assert!((stored - state).abs() < 1., "the width is saved");
+}
+
+#[gpui::test]
+fn users_edge_drag_resizes_and_double_click_fits_saves(cx: &mut TestAppContext) {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = data_dir("users");
+    let (view, cx) = open_page(cx, Page::Users);
+    let before = table_width(&view, cx, "users", "User");
+
+    let from = center(bounds(cx, "resize-users-0"));
+    drag(cx, from, point(from.x + gpui::px(40.), from.y));
+    let after = table_width(&view, cx, "users", "User");
+    assert!((after - (before + 40.)).abs() < 1., "{before} -> {after}");
+    assert!(
+        (saved(&dir)["users"]["columns"][0]["width"]
+            .as_f64()
+            .unwrap() as f32
+            - after)
+            .abs()
+            < 1.
+    );
+
+    // No process rows here: the fit measures the header alone, which is far narrower than 260 px.
+    double_click(cx, "resize-users-0");
+    let fitted = table_width(&view, cx, "users", "User");
+    assert!(fitted < after, "{after} -> {fitted}");
+    assert!(
+        (saved(&dir)["users"]["columns"][0]["width"]
+            .as_f64()
+            .unwrap() as f32
+            - fitted)
+            .abs()
+            < 1.
+    );
+}
+
+#[gpui::test]
+fn disk_folders_hide_and_reorder(cx: &mut TestAppContext) {
+    use crate::sysops::{FolderSize, Scan};
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = data_dir("disk-folders");
+    let (view, cx) = open_page(cx, Page::Disk);
+    view.update(cx, |app, cx| {
+        app.scans = vec![Scan {
+            at: 1,
+            items: vec![
+                FolderSize {
+                    path: "/Users/tester/Movies".into(),
+                    bytes: 5 * 1024 * MB,
+                },
+                FolderSize {
+                    path: "/Users/tester/Music".into(),
+                    bytes: 1024,
+                },
+            ],
+        }];
+        cx.notify();
+    });
+
+    click(cx, "columns-folders");
+    click(cx, "col-check-Size");
+    let shown = view.read_with(cx, |app, _| {
+        app.table_layouts.get("folders").unwrap().shown().count()
+    });
+    assert_eq!(shown, 2, "Size is hidden");
+    assert_eq!(saved(&dir)["folders"]["columns"][1]["visible"], false);
+    // Close the menu again so it does not cover the header.
+    click(cx, "columns-folders");
+
+    // Dragging Folder onto Share puts Folder after it; the hidden Size keeps its place.
+    let from = center(bounds(cx, "sort-folders-0"));
+    let to = center(bounds(cx, "sort-folders-2"));
+    drag(cx, from, to);
+    assert_eq!(
+        table_titles(&view, cx, "folders"),
+        ["Size", "Share", "Folder"]
+    );
+    assert_eq!(saved_titles(&dir, "folders"), ["Size", "Share", "Folder"]);
+}

@@ -217,7 +217,7 @@ pub struct OtmApp {
     pub icons_requested: HashSet<String>,
     /// Whether an icon render is running; the next batch waits for it.
     pub icons_rendering: bool,
-    /// Off in tests that do not need icons: AppKit's renderer (osascript) can stall a headless run.
+    /// Off in tests unless they check icons: AppKit's renderer (osascript) can stall a headless run.
     pub icons_enabled: bool,
     /// Owning app name -> its bundle path (for icons on owner rows).
     pub owner_bundles: std::collections::HashMap<String, String>,
@@ -424,7 +424,7 @@ impl OtmApp {
             icons: Default::default(),
             icons_requested: HashSet::new(),
             icons_rendering: false,
-            icons_enabled: true,
+            icons_enabled: !cfg!(test),
             owner_bundles: Default::default(),
             context_menu: None,
             confirm: None,
