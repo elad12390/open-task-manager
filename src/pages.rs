@@ -555,14 +555,15 @@ impl OtmApp {
                     })
                     .collect(),
             ),
-            Page::Services => (
-                vec![
-                    text("Label", 460.),
-                    num("PID", 90.),
-                    num("Last Exit", 90.),
-                    text("State", 100.),
-                ],
-                self.services
+            Page::Services => {
+                let scoped = self.services.iter().any(|s| !s.scope.is_empty());
+                let mut headers = vec![text("Label", 460.)];
+                if scoped {
+                    headers.push(text("Scope", 100.));
+                }
+                headers.extend([num("PID", 90.), num("Last Exit", 90.), text("State", 100.)]);
+                let rows = self
+                    .services
                     .iter()
                     .map(|s| {
                         let mut actions = vec![btn("Restart", Action::Restart(s.label.clone()))];
@@ -570,6 +571,22 @@ impl OtmApp {
                             actions.push(danger("Stop", Action::Stop(s.label.clone())));
                         }
                         let state = if s.pid.is_some() { "Running" } else { "Idle" };
+                        let mut cells = vec![s.label.clone()];
+                        let mut keys = vec![K::text(&s.label)];
+                        if scoped {
+                            cells.push(s.scope.into());
+                            keys.push(K::text(s.scope));
+                        }
+                        cells.extend([
+                            s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
+                            s.status.to_string(),
+                            state.into(),
+                        ]);
+                        keys.extend([
+                            K::num(s.pid.map_or(-1., f64::from)),
+                            K::num(s.status as f64),
+                            K::text(state),
+                        ]);
                         row(
                             s.label.clone(),
                             s.pid.and_then(pid_icon).or_else(|| {
@@ -577,24 +594,15 @@ impl OtmApp {
                                     .as_ref()
                                     .map(|p| icons::path_key(&p.to_string_lossy()))
                             }),
-                            vec![
-                                s.label.clone(),
-                                s.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()),
-                                s.status.to_string(),
-                                state.into(),
-                            ],
-                            vec![
-                                K::text(&s.label),
-                                K::num(s.pid.map_or(-1., f64::from)),
-                                K::num(s.status as f64),
-                                K::text(state),
-                            ],
+                            cells,
+                            keys,
                             s.pid.is_none(),
                             actions,
                         )
                     })
-                    .collect(),
-            ),
+                    .collect();
+                (headers, rows)
+            }
             Page::Connections => (
                 vec![
                     text("Process", 200.),

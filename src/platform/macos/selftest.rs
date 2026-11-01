@@ -5,7 +5,7 @@ use std::{collections::HashSet, fs, path::PathBuf, thread::sleep, time::Duration
 
 use crate::{
     columns::{GroupBy, TableLayout},
-    metrics::Snapshot,
+    metrics::{ProcessInfo, Snapshot},
     processes::{Row, build_rows},
     selftest::Report,
     sysops::{self, ServiceAction},
@@ -22,6 +22,16 @@ fn service_pid() -> Option<u32> {
 
 fn alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+/// Under launchd, all but a few processes of the tree sit below it.
+pub fn init_holds_tree(descendants: usize, rows: usize) -> bool {
+    descendants + 3 >= rows
+}
+
+/// Processes whose resident memory is always read (macOS reads it for every process).
+pub fn unmeasured(p: &ProcessInfo) -> bool {
+    p.memory == 0
 }
 
 pub fn app_checks(r: &mut Report, snap: &Snapshot) {

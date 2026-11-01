@@ -631,6 +631,7 @@ impl OtmApp {
             pid,
             status: 0,
             program: None,
+            scope: "",
         })
         .collect();
         self.connections = [

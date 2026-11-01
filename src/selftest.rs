@@ -87,11 +87,10 @@ pub fn run() -> i32 {
         .filter(|p| p.user == "root")
         .map(|p| p.memory)
         .sum();
-    // Kernel threads have no memory and no executable on Linux; only real processes count.
     let zero_mem = snap
         .processes
         .iter()
-        .filter(|p| p.memory == 0 && !p.path.is_empty())
+        .filter(|p| crate::platform::selftest::unmeasured(p))
         .count();
     r.check(
         "other users' memory",
@@ -145,7 +144,7 @@ pub fn run() -> i32 {
     let launchd = nodes.iter().find(|n| n.0 == 1);
     r.check(
         "process tree",
-        nodes.len() == snap.processes.len() && misplaced == 0 && max_depth >= 2 && roots <= 3 && launchd.is_some_and(|n| n.2 == 0 && n.3 * 2 >= nodes.len()),
+        nodes.len() == snap.processes.len() && misplaced == 0 && max_depth >= 2 && roots <= 3 && launchd.is_some_and(|n| n.2 == 0 && crate::platform::selftest::init_holds_tree(n.3, nodes.len())),
         format!(
             "{} rows, {roots} roots, max depth {max_depth}, launchd has {} descendants, {misplaced} rows not under their parent",
             nodes.len(),

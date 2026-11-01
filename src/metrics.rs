@@ -262,8 +262,7 @@ impl Sampler {
             .disks
             .iter()
             .filter(|d| {
-                let m = d.mount_point();
-                m == std::path::Path::new("/") || m.starts_with("/Volumes/")
+                crate::platform::shows_volume(d.mount_point(), &d.file_system().to_string_lossy())
             })
             .map(|d| DiskInfo {
                 mount: d.mount_point().display().to_string(),

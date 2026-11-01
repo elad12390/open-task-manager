@@ -50,6 +50,7 @@ fn launchctl_services() -> Vec<Service> {
                 pid: pid.parse().ok(),
                 status: status.parse().unwrap_or(0),
                 program: None,
+                scope: "",
             })
         })
         .collect()
