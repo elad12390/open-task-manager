@@ -3698,6 +3698,7 @@ version = "0.2.1"
 dependencies = [
  "gpui",
  "libc",
+ "log",
  "resvg",
  "serde",
  "serde_json",

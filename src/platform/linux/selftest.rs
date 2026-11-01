@@ -65,10 +65,17 @@ pub fn app_checks(r: &mut Report, snap: &Snapshot) {
         .iter()
         .filter(|p| owners.get(&p.pid).map(String::as_str) == Some(categories::OS_OWNER))
         .count();
+    // Started by a system service (a CI runner), this process rightly belongs to the OS; only a
+    // user session (a user@ or session- cgroup) has an app to own it.
+    let in_session = fs::read_to_string("/proc/self/cgroup")
+        .map(|c| c.contains("/user@") || c.contains("/session-") || !c.contains(".service"))
+        .unwrap_or(true);
     r.check(
         "owners",
-        !mine.is_empty() && mine != categories::OS_OWNER && system > 0,
-        format!("this process ({me}) is owned by {mine:?}; {system} operating-system processes"),
+        !mine.is_empty() && (mine != categories::OS_OWNER || !in_session) && system > 0,
+        format!(
+            "this process ({me}) is owned by {mine:?} (user session: {in_session}); {system} operating-system processes"
+        ),
     );
     autostart(r);
     user_unit(r);
@@ -131,6 +138,7 @@ fn user_unit(r: &mut Report) {
             .and_then(|s| s.pid)
     };
     let mut cycles = Vec::new();
+    let mut errors = Vec::new();
     for _ in 0..3 {
         let res = sysops::control_service(UNIT, ServiceAction::Restart);
         sleep(Duration::from_millis(1000));
@@ -139,6 +147,9 @@ fn user_unit(r: &mut Report) {
         let stop = sysops::control_service(UNIT, ServiceAction::Stop);
         sleep(Duration::from_millis(1000));
         let gone = pid.is_some_and(|p| !alive(p));
+        if let Err(e) = res.as_ref().and(stop.as_ref()) {
+            errors.push(e.clone());
+        }
         cycles.push((res.is_ok() && up, stop.is_ok() && gone, pid));
     }
     fs::remove_file(&file).ok();
@@ -146,7 +157,7 @@ fn user_unit(r: &mut Report) {
     r.check(
         NAME,
         cycles.iter().all(|(a, b, _)| *a && *b),
-        format!("(started, stopped, pid): {cycles:?}"),
+        format!("(started, stopped, pid): {cycles:?}; errors: {errors:?}"),
     );
 }
 

@@ -15,6 +15,7 @@ sysinfo = "0.37"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
+log = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 resvg = { version = "0.45", default-features = false }
@@ -30,7 +31,7 @@ license-file = ["LICENSE", "0"]
 section = "utils"
 priority = "optional"
 extended-description = "Open Task Manager is a local-only system monitor: processes, services, startup items, disk space, power and more. Nothing leaves your machine."
-depends = "$auto, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, libx11-xcb1, libxcb1, dbus, policykit-1"
+depends = "$auto, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, libx11-xcb1, libxcb1, dbus, policykit-1, iproute2"
 assets = [
     ["target/release/otm", "usr/bin/otm", "755"],
     ["packaging/linux/io.github.elad12390.OpenTaskManager.desktop", "usr/share/applications/io.github.elad12390.OpenTaskManager.desktop", "644"],

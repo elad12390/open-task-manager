@@ -59,7 +59,37 @@ use gpui::{
     App, Application, Bounds, WindowBounds, WindowKind, WindowOptions, prelude::*, px, size,
 };
 
+/// Prints GPUI's and our log records to stderr when `OTM_LOG` is set (e.g. `OTM_LOG=info`).
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn init_log() {
+    let Some(level) = std::env::var("OTM_LOG")
+        .ok()
+        .and_then(|l| l.parse::<log::LevelFilter>().ok())
+    else {
+        return;
+    };
+    if log::set_logger(&StderrLog).is_ok() {
+        log::set_max_level(level);
+    }
+}
+
 fn main() {
+    init_log();
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--demo") {
         let scene = args

@@ -147,7 +147,7 @@ jobs:
           gh release upload "$TAG" "$DEB" "$DEB.sha256" --clobber
 
   flatpak:
-    name: Flatpak ${{ matrix.arch }}, install-tested
+    name: Flatpak ${{ matrix.arch }}
     needs: release
     strategy:
       fail-fast: false
@@ -158,6 +158,10 @@ jobs:
           - runner: ubuntu-22.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
+    # flatpak-builder lives in this image; the action does not install it.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      options: --privileged
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
@@ -181,6 +185,46 @@ jobs:
           manifest-path: packaging/flatpak/io.github.elad12390.OpenTaskManager.yml
           cache-key: flatpak-builder-${{ github.sha }}-${{ matrix.arch }}
           arch: ${{ matrix.arch }}
+          upload-artifact: false
+
+      - name: Lint the manifest, MetaInfo and repo
+        run: |
+          flatpak-builder-lint manifest packaging/flatpak/io.github.elad12390.OpenTaskManager.yml
+          flatpak-builder-lint appstream packaging/linux/io.github.elad12390.OpenTaskManager.metainfo.xml
+          flatpak-builder-lint repo repo
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: OpenTaskManager-*.flatpak
+
+  flatpak-test:
+    name: Flatpak ${{ matrix.arch }}, install-tested in Fedora
+    needs: flatpak
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Read the version from Cargo.toml
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
 
       - name: Install-test the bundle in Fedora and run the selftest
         run: ci/test-flatpak-install.sh "OpenTaskManager-${VERSION}-${{ matrix.arch }}.flatpak"
@@ -191,13 +235,11 @@ jobs:
           shasum -a 256 "$BUNDLE" | tee "$BUNDLE.sha256"
 
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: flatpak-${{ matrix.arch }}
+          name: flatpak-${{ matrix.arch }}-tested
           path: |
             OpenTaskManager-*.flatpak
             OpenTaskManager-*.flatpak.sha256
-          if-no-files-found: ignore
 
       - name: Publish .flatpak to the GitHub release
         if: (github.event_name == 'push' || github.event.inputs.tag != '') && success()
