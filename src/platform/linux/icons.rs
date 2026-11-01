@@ -128,16 +128,21 @@ fn pixmap_dirs() -> Vec<PathBuf> {
 
 /// The icon theme in use: GNOME's setting, else KDE's, else hicolor.
 fn theme_name(home: &Path) -> String {
-    let gnome = host::output(&["gsettings", "get", "org.gnome.desktop.interface", "icon-theme"])
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .trim_matches('\'')
-                .to_string()
-        })
-        .filter(|s| !s.is_empty());
+    let gnome = host::output(&[
+        "gsettings",
+        "get",
+        "org.gnome.desktop.interface",
+        "icon-theme",
+    ])
+    .ok()
+    .filter(|o| o.status.success())
+    .map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .trim_matches('\'')
+            .to_string()
+    })
+    .filter(|s| !s.is_empty());
     gnome
         .or_else(|| {
             let text = host::read(home.join(".config/kdeglobals")).ok()?;

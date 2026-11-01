@@ -73,10 +73,6 @@ pub fn host_processes() -> Option<Vec<crate::metrics::ProcessInfo>> {
     None
 }
 
-pub fn own_pid() -> u32 {
-    std::process::id()
-}
-
 /// Turn off the unified buffer cache for a file, so the benchmark measures the disk.
 pub fn bypass_cache(file: &fs::File) {
     unsafe { libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1) };

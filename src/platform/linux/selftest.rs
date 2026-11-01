@@ -145,10 +145,7 @@ fn user_unit(r: &mut Report) {
 
 fn signals(r: &mut Report, snap: &Snapshot) {
     let started = host::run(&["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"]);
-    let Some(pid) = started
-        .ok()
-        .and_then(|out| out.trim().parse::<u32>().ok())
-    else {
+    let Some(pid) = started.ok().and_then(|out| out.trim().parse::<u32>().ok()) else {
         r.check(
             "suspend and resume",
             false,

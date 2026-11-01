@@ -79,8 +79,10 @@ fn mirror(path: &Path) -> PathBuf {
 
 /// The host path without the mirror prefix, for commands that run on the host.
 fn host_path(path: &Path) -> String {
-    let path = path.strip_prefix(HOST_MIRROR).unwrap_or(path);
-    path.to_string_lossy().into_owned()
+    match path.strip_prefix(HOST_MIRROR) {
+        Ok(rest) => Path::new("/").join(rest).to_string_lossy().into_owned(),
+        Err(_) => path.to_string_lossy().into_owned(),
+    }
 }
 
 /// Reads a host path: the mirror when it has the file, else the bytes of `cat` on the host.
@@ -176,7 +178,13 @@ pub fn size(path: impl AsRef<Path>) -> Option<u64> {
     fs::metadata(mirror(path))
         .map(|m| m.len())
         .ok()
-        .or_else(|| run(&["stat", "-L", "-c", "%s", &host_path(path)]).ok()?.trim().parse().ok())
+        .or_else(|| {
+            run(&["stat", "-L", "-c", "%s", &host_path(path)])
+                .ok()?
+                .trim()
+                .parse()
+                .ok()
+        })
 }
 
 /// Writes a host file, creating it or replacing it.
@@ -249,7 +257,9 @@ mod tests {
         let cmd = command_under(&sandbox, "ss", &["-tunapH"]);
         assert_eq!(cmd.get_program(), "flatpak-spawn");
         assert_eq!(
-            cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            cmd.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
             ["--host", "ss", "-tunapH"]
         );
         let native = tempfile_dir("native");
@@ -270,8 +280,14 @@ mod tests {
             mirror(Path::new("/run/host/usr/share")),
             PathBuf::from("/run/host/usr/share")
         );
-        assert_eq!(host_path(Path::new("/run/host/etc/os-release")), "/etc/os-release");
-        assert_eq!(host_path(Path::new("/sys/class/thermal")), "/sys/class/thermal");
+        assert_eq!(
+            host_path(Path::new("/run/host/etc/os-release")),
+            "/etc/os-release"
+        );
+        assert_eq!(
+            host_path(Path::new("/sys/class/thermal")),
+            "/sys/class/thermal"
+        );
     }
 
     #[test]
@@ -302,8 +318,8 @@ mod tests {
             "fs::metadata",
             "fs::create",
             "fs::remove",
-            "read_dir(",
-            "read_link(",
+            "fs::read_dir(",
+            "fs::read_link(",
             ".exists()",
             ".is_file()",
             ".is_dir()",

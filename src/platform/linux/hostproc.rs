@@ -223,7 +223,8 @@ pub fn processes(
                 read: r.read,
                 write: r.write,
             });
-            let cpu = (r.ticks.saturating_sub(before.ticks) as f64 / CLOCK_TICKS / secs * 100.) as f32;
+            let cpu =
+                (r.ticks.saturating_sub(before.ticks) as f64 / CLOCK_TICKS / secs * 100.) as f32;
             let per_sec = |now: u64, then: u64| (now.saturating_sub(then) as f64 / secs) as u64;
             let started = r.start as f64 / CLOCK_TICKS;
             ProcessInfo {
@@ -231,7 +232,11 @@ pub fn processes(
                 ppid: Some(r.ppid).filter(|&p| p != r.pid),
                 name: r.name.clone(),
                 user: r.user.clone(),
-                cpu: if previous.contains_key(&r.pid) { cpu } else { 0. },
+                cpu: if previous.contains_key(&r.pid) {
+                    cpu
+                } else {
+                    0.
+                },
                 memory: r.rss_kb * 1024,
                 disk_read: per_sec(r.read, before.read),
                 disk_write: per_sec(r.write, before.write),
@@ -309,8 +314,22 @@ mod tests {
     use super::*;
 
     const FIELDS: [&str; 16] = [
-        "1", "0", "root", "S", "systemd", "10", "400", "100", "9000", "4096", "0",
-        "/usr/lib/systemd/systemd", "/sbin/init", "0::/init.scope", "0", "",
+        "1",
+        "0",
+        "root",
+        "S",
+        "systemd",
+        "10",
+        "400",
+        "100",
+        "9000",
+        "4096",
+        "0",
+        "/usr/lib/systemd/systemd",
+        "/sbin/init",
+        "0::/init.scope",
+        "0",
+        "",
     ];
 
     fn line(fields: &[&str]) -> String {
@@ -358,8 +377,14 @@ mod tests {
 
     #[test]
     fn cpu_is_the_tick_change_per_second_as_a_share_of_one_core() {
-        let before = parse(&format!("U\u{1f}100\n{}\n", with("42", "1", ("100", "0"), "R")));
-        let after = parse(&format!("U\u{1f}102\n{}\n", with("42", "1", ("200", "100"), "R")));
+        let before = parse(&format!(
+            "U\u{1f}100\n{}\n",
+            with("42", "1", ("100", "0"), "R")
+        ));
+        let after = parse(&format!(
+            "U\u{1f}102\n{}\n",
+            with("42", "1", ("200", "100"), "R")
+        ));
         let prev = counters(&before);
         let table = processes(&after, &prev, 2.0, None);
         assert_eq!(table.len(), 1);
@@ -370,7 +395,10 @@ mod tests {
 
     #[test]
     fn a_new_process_has_no_cpu_rate_yet() {
-        let now = parse(&format!("U\u{1f}100\n{}\n", with("7", "1", ("300", "0"), "S")));
+        let now = parse(&format!(
+            "U\u{1f}100\n{}\n",
+            with("7", "1", ("300", "0"), "S")
+        ));
         let table = processes(&now, &HashMap::new(), 1.0, None);
         assert_eq!(table[0].cpu, 0.);
     }

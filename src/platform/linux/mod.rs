@@ -4,8 +4,8 @@
 
 pub mod apps;
 pub mod host;
-pub mod icons;
 mod hostproc;
+pub mod icons;
 mod net;
 mod owners;
 mod power;
@@ -66,11 +66,7 @@ pub fn host_processes() -> Option<Vec<ProcessInfo>> {
 /// Sends a signal to a process of the host's table, through the host inside a sandbox.
 pub fn signal(pid: u32, sig: i32) -> Result<(), String> {
     if host::sandboxed() {
-        return host(
-            "kill",
-            &[&format!("-{sig}"), &pid.to_string()],
-        )
-        .map(|_| ());
+        return host("kill", &[&format!("-{sig}"), &pid.to_string()]).map(|_| ());
     }
     if unsafe { libc::kill(pid as i32, sig) } == 0 {
         Ok(())

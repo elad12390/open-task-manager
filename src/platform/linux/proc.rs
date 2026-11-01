@@ -6,7 +6,7 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     ffi::CStr,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use super::{host, hostproc};
@@ -215,7 +215,12 @@ fn cpus() -> Vec<Cpu> {
     entries
         .iter()
         .filter_map(|dir| {
-            let id: u32 = dir.file_name()?.to_str()?.strip_prefix("cpu")?.parse().ok()?;
+            let id: u32 = dir
+                .file_name()?
+                .to_str()?
+                .strip_prefix("cpu")?
+                .parse()
+                .ok()?;
             Some(Cpu {
                 id,
                 core: read_u32(dir.join("topology/physical_package_id"))
