@@ -188,6 +188,9 @@ jobs:
           cache-key: flatpak-builder-${{ github.sha }}-${{ matrix.arch }}
           arch: ${{ matrix.arch }}
           upload-artifact: false
+          # Mirror the MetaInfo screenshots the way Flathub's builder does, and commit them to the repo
+          # (the repo lint's appstream-external-screenshot-url has no exception).
+          mirror-screenshots-url: https://dl.flathub.org/media
 
       - name: Lint the manifest, MetaInfo and repo
         run: |
