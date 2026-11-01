@@ -1,0 +1,40 @@
+id: io.github.elad12390.OpenTaskManager
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: otm
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Host processes, services and disk usage are read through flatpak-spawn --host (src/platform/linux/host.rs).
+  - --talk-name=org.freedesktop.Flatpak
+  - --system-talk-name=org.freedesktop.systemd1
+  - --system-talk-name=org.freedesktop.PolicyKit1
+  - --system-talk-name=org.freedesktop.UPower
+  - --talk-name=org.freedesktop.FileManager1
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/open-task-manager/cargo
+modules:
+  - name: open-task-manager
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked --offline
+      - install -Dm755 target/release/otm /app/bin/otm
+      - install -Dm644 packaging/linux/io.github.elad12390.OpenTaskManager.desktop /app/share/applications/io.github.elad12390.OpenTaskManager.desktop
+      - install -Dm644 packaging/linux/io.github.elad12390.OpenTaskManager.metainfo.xml /app/share/metainfo/io.github.elad12390.OpenTaskManager.metainfo.xml
+      - install -d /app/share/icons
+      - cp -r packaging/linux/icons/hicolor /app/share/icons/
+      - install -Dm644 LICENSE /app/share/licenses/io.github.elad12390.OpenTaskManager/LICENSE
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - target
+      - cargo-sources.json

@@ -3,6 +3,7 @@
 //! desktop entries for installed apps.
 
 pub mod apps;
+pub mod host;
 pub mod icons;
 mod net;
 mod owners;
@@ -32,6 +33,9 @@ pub use startup::{startup_items, toggle_startup};
 
 /// Your own command-line tools and shells, each filed under the one you ran them from.
 pub const TOOLS: &str = "Command-line & Other";
+
+/// The Flatpak application ID: the window's Wayland app id must equal the desktop file's name to get its icon.
+pub const APP_ID: &str = "io.github.elad12390.OpenTaskManager";
 
 pub const CAPS: Caps = Caps {
     system_group: crate::categories::OS_OWNER,

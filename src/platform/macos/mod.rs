@@ -19,6 +19,8 @@ pub use launchd::plist_program;
 pub use launchd::{control_service, services, startup_items, toggle_startup};
 pub use system::{connections, installed_apps, power, system_info, trash_app};
 
+pub const APP_ID: &str = "org.opentaskmanager.native";
+
 pub const CAPS: Caps = Caps {
     system_group: "macOS",
     apps_group: "Apps",
