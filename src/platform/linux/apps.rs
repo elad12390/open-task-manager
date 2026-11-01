@@ -5,13 +5,12 @@
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
-    fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::OnceLock,
 };
 
-use crate::sysops::{InstalledApp, home, run};
+use super::host;
+use crate::sysops::{InstalledApp, home};
 
 /// A desktop entry that is not hidden. `no_display` entries stay listed for matching processes.
 #[derive(Clone, Debug, PartialEq)]
@@ -116,12 +115,11 @@ pub fn scan_desktop(dirs: &[PathBuf], locales: &[String]) -> Vec<Desktop> {
     let mut seen: HashSet<OsString> = HashSet::new();
     let mut out = Vec::new();
     for dir in dirs {
-        let Ok(entries) = fs::read_dir(dir) else {
+        let Ok(entries) = host::read_dir(dir) else {
             continue;
         };
         let mut files: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
+            .into_iter()
             .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("desktop"))
             .collect();
         files.sort();
@@ -132,7 +130,7 @@ pub fn scan_desktop(dirs: &[PathBuf], locales: &[String]) -> Vec<Desktop> {
             if !seen.insert(id) {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&path) else {
+            let Ok(text) = host::read(&path) else {
                 continue;
             };
             if let Some(desktop) = parse_desktop(&path, &text, locales) {
@@ -206,22 +204,19 @@ enum Manager {
 }
 
 fn manager() -> Manager {
-    if Path::new("/var/lib/dpkg/status").exists() {
+    if host::exists("/var/lib/dpkg/status") {
         Manager::Dpkg
-    } else if Path::new("/var/lib/rpm").exists() {
+    } else if host::exists("/var/lib/rpm") {
         Manager::Rpm
     } else {
         Manager::Unknown
     }
 }
 
-/// The stdout of a command, whatever its exit status (`dpkg -S` exits 1 when one file is unknown).
+/// The stdout of a host command, whatever its exit status (`dpkg -S` exits 1 when one file is unknown).
 fn output(cmd: &str, args: &[&str]) -> String {
-    Command::new(cmd)
-        .args(args)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
+    let argv: Vec<&str> = std::iter::once(cmd).chain(args.iter().copied()).collect();
+    host::stdout(&argv)
 }
 
 /// The package owning each path, asked in one batch.
@@ -354,7 +349,7 @@ pub fn parse_snap_list(out: &str) -> HashMap<String, String> {
 
 /// Bytes on disk under a folder, following symlinks (Flatpak and Snap install through them).
 fn dir_bytes(path: &Path) -> Option<u64> {
-    run("du", &["-sLk", &path.to_string_lossy()])
+    host::run(&["du", "-sLk", &path.to_string_lossy()])
         .ok()?
         .split_whitespace()
         .next()?
@@ -364,7 +359,7 @@ fn dir_bytes(path: &Path) -> Option<u64> {
 }
 
 fn file_bytes(path: &Path) -> Option<u64> {
-    fs::metadata(path).ok().map(|m| m.len())
+    host::size(path)
 }
 
 fn stem(path: &Path) -> String {
@@ -520,17 +515,15 @@ pub fn trash_app(path: &Path) -> Result<(), String> {
     if !listed {
         return Err("Only installed apps can be uninstalled".into());
     }
-    if !path.exists() {
+    if !host::exists(path) {
         return Err("App not found".into());
     }
     let owner = (location_of(path, &home) == Location::System)
         .then(|| owners_of(&[path]).remove(path))
         .flatten();
     let argv = removal_argv(&removal_for(path, &home, owner.as_ref()), path);
-    let out = Command::new(&argv[0])
-        .args(&argv[1..])
-        .output()
-        .map_err(|e| format!("{}: {e}", argv[0]))?;
+    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let out = host::output(&words).map_err(|e| format!("{}: {e}", argv[0]))?;
     if out.status.success() {
         return Ok(());
     }

@@ -1,25 +1,27 @@
 //! `/proc` and `/sys` readers: the process table (parent, owner, memory, executable path), process
 //! state and cgroup, kernel threads, and the hardware and OS facts of the System Information panel.
+//! Inside a sandbox the process facts come from the host's sample (`hostproc`), and every file is read
+//! through `host`, so the same code reads the host's `/proc` and `/sys` in both cases.
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     ffi::CStr,
-    fs,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
+use super::{host, hostproc};
 use crate::{metrics::PsRow, sysops::SystemInfo};
 
 /// The fields of `/proc/<pid>/stat` after the command name, which may itself contain spaces.
 fn stat_fields(pid: u32) -> Option<Vec<String>> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = host::read(format!("/proc/{pid}/stat")).ok()?;
     let rest = &stat[stat.rfind(')')? + 1..];
     Some(rest.split_whitespace().map(str::to_string).collect())
 }
 
 /// `/proc/<pid>/status` lines of the form `Key:\tvalue`.
 fn status_value(pid: u32, key: &str) -> Option<String> {
-    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let status = host::read(format!("/proc/{pid}/status")).ok()?;
     status
         .lines()
         .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
@@ -40,10 +42,10 @@ fn user_name(uid: u32) -> String {
 /// The executable: its `exe` link, else argv[0] when that is an absolute path (the link of another
 /// user's process is often refused, but its command line is readable).
 fn exe_path(pid: u32) -> String {
-    if let Ok(p) = fs::read_link(format!("/proc/{pid}/exe")) {
+    if let Ok(p) = host::read_link(format!("/proc/{pid}/exe")) {
         return p.to_string_lossy().into_owned();
     }
-    fs::read(format!("/proc/{pid}/cmdline"))
+    host::read_bytes(format!("/proc/{pid}/cmdline"))
         .ok()
         .and_then(|cmd| {
             let arg0 = String::from_utf8_lossy(cmd.split(|&b| b == 0).next()?).into_owned();
@@ -54,13 +56,32 @@ fn exe_path(pid: u32) -> String {
 
 /// Parent, owner, resident memory and executable path of every process readable in `/proc`.
 /// Processes whose files another user keeps private are skipped or come back with empty fields.
+/// Inside a sandbox this is the host's table, from its latest sample.
 pub fn process_table() -> HashMap<u32, PsRow> {
-    let Ok(entries) = fs::read_dir("/proc") else {
+    if host::sandboxed() {
+        return hostproc::sample()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| {
+                (
+                    p.pid,
+                    PsRow {
+                        ppid: p.ppid.unwrap_or(p.pid),
+                        user: p.user,
+                        cpu: p.cpu,
+                        memory: p.memory,
+                        path: p.path,
+                    },
+                )
+            })
+            .collect();
+    }
+    let Ok(entries) = host::read_dir("/proc") else {
         return HashMap::new();
     };
     entries
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .iter()
+        .filter_map(|e| e.file_name()?.to_str()?.parse::<u32>().ok())
         .filter_map(|pid| {
             let fields = stat_fields(pid)?;
             let ppid = fields.get(1)?.parse().ok()?;
@@ -90,12 +111,19 @@ pub fn process_table() -> HashMap<u32, PsRow> {
 
 /// The kernel's state letter for a process ("R", "S", "T" = stopped…), or None if it is gone.
 pub fn process_state(pid: u32) -> Option<String> {
+    if host::sandboxed() {
+        let out = host::run(&["ps", "-o", "stat=", "-p", &pid.to_string()]).ok()?;
+        return out.trim().chars().next().map(|c| c.to_string());
+    }
     stat_fields(pid)?.first().cloned()
 }
 
 /// The cgroup lines of a process (`0::/user.slice/…` on cgroup v2), which name its systemd unit.
 pub fn cgroup(pid: u32) -> Option<String> {
-    fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()
+    if host::sandboxed() {
+        return hostproc::cgroup(pid);
+    }
+    host::read(format!("/proc/{pid}/cgroup")).ok()
 }
 
 /// Kernel threads have no executable and are children of kthreadd (pid 2) or of pid 0.
@@ -105,14 +133,25 @@ pub fn is_kernel_thread(pid: u32, ppid: Option<u32>, path_is_empty: bool) -> boo
 
 /// A process the kernel runs itself: no command line and no executable, so nothing user-level to signal.
 pub fn is_kernel_process(pid: u32) -> bool {
+    if host::sandboxed() {
+        return pid == 2 || hostproc::is_kernel(pid);
+    }
     pid == 2
         || (pid > 1
-            && fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| c.is_empty())
-            && fs::read_link(format!("/proc/{pid}/exe")).is_err())
+            && host::read_bytes(format!("/proc/{pid}/cmdline")).is_ok_and(|c| c.is_empty())
+            && host::read_link(format!("/proc/{pid}/exe")).is_err())
+}
+
+/// The app's own process ID as the process table names it (the host's, inside a sandbox).
+pub fn own_pid() -> u32 {
+    if host::sandboxed() {
+        return hostproc::own_pid().unwrap_or(std::process::id());
+    }
+    std::process::id()
 }
 
 fn cpu_model() -> String {
-    fs::read_to_string("/proc/cpuinfo")
+    host::read("/proc/cpuinfo")
         .ok()
         .and_then(|info| {
             info.lines()
@@ -123,7 +162,7 @@ fn cpu_model() -> String {
 }
 
 fn os_release(key: &str) -> String {
-    fs::read_to_string("/etc/os-release")
+    host::read("/etc/os-release")
         .ok()
         .and_then(|text| {
             text.lines().find_map(|l| {
@@ -136,7 +175,7 @@ fn os_release(key: &str) -> String {
 }
 
 fn mem_total() -> u64 {
-    fs::read_to_string("/proc/meminfo")
+    host::read("/proc/meminfo")
         .ok()
         .and_then(|m| {
             m.lines().find_map(|l| {
@@ -151,7 +190,7 @@ fn mem_total() -> u64 {
 }
 
 fn cpu_count(key: &str) -> u32 {
-    fs::read_to_string("/proc/cpuinfo")
+    host::read("/proc/cpuinfo")
         .ok()
         .map(|info| info.lines().filter(|l| l.starts_with(key)).count() as u32)
         .unwrap_or(0)
@@ -166,18 +205,17 @@ struct Cpu {
 }
 
 fn read_u32(path: impl AsRef<Path>) -> Option<u32> {
-    fs::read_to_string(path).ok()?.trim().parse().ok()
+    host::read(path).ok()?.trim().parse().ok()
 }
 
 fn cpus() -> Vec<Cpu> {
-    let Ok(entries) = fs::read_dir("/sys/devices/system/cpu") else {
+    let Ok(entries) = host::read_dir("/sys/devices/system/cpu") else {
         return Vec::new();
     };
     entries
-        .flatten()
-        .filter_map(|e| {
-            let id: u32 = e.file_name().to_str()?.strip_prefix("cpu")?.parse().ok()?;
-            let dir = e.path();
+        .iter()
+        .filter_map(|dir| {
+            let id: u32 = dir.file_name()?.to_str()?.strip_prefix("cpu")?.parse().ok()?;
             Some(Cpu {
                 id,
                 core: read_u32(dir.join("topology/physical_package_id"))
@@ -225,18 +263,18 @@ fn unique_cores<'a>(cpus: impl Iterator<Item = &'a Cpu>) -> u32 {
 }
 
 fn cpu_list(path: &str) -> Vec<u32> {
-    fs::read_to_string(path)
+    host::read(path)
         .map(|s| parse_cpulist(&s))
         .unwrap_or_default()
 }
 
 pub fn system_info() -> SystemInfo {
-    let uptime: f64 = fs::read_to_string("/proc/uptime")
+    let uptime: f64 = host::read("/proc/uptime")
         .ok()
         .and_then(|u| u.split_whitespace().next()?.parse().ok())
         .unwrap_or(0.);
     let now = crate::sysops::now_secs();
-    let release = fs::read_to_string(Path::new("/proc/sys/kernel/osrelease"))
+    let release = host::read("/proc/sys/kernel/osrelease")
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     let (physical, performance, efficiency) = count_cores(
@@ -247,7 +285,7 @@ pub fn system_info() -> SystemInfo {
         ),
     );
     SystemInfo {
-        model: fs::read_to_string("/sys/devices/virtual/dmi/id/product_name")
+        model: host::read("/sys/devices/virtual/dmi/id/product_name")
             .map(|s| s.trim().to_string())
             .unwrap_or_default(),
         chip: cpu_model(),

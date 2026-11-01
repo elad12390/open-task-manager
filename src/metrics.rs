@@ -201,7 +201,10 @@ impl Sampler {
             })
             .collect();
 
-        self.refresh_ps();
+        let host_rows = crate::platform::host_processes();
+        if host_rows.is_none() {
+            self.refresh_ps();
+        }
         let processes = raw
             .into_iter()
             .map(
@@ -249,6 +252,7 @@ impl Sampler {
                 },
             )
             .collect::<Vec<_>>();
+        let processes = host_rows.unwrap_or(processes);
         let owners = crate::categories::owners(&processes);
         let processes: Vec<ProcessInfo> = processes
             .into_iter()

@@ -59,6 +59,24 @@ pub fn is_kernel_process(_pid: u32) -> bool {
     false
 }
 
+/// Signals go straight to the process: the app is not sandboxed from its processes.
+pub fn signal(pid: u32, sig: i32) -> Result<(), String> {
+    if unsafe { libc::kill(pid as i32, sig) } == 0 {
+        Ok(())
+    } else {
+        Err(format!("PID {pid}: {}", std::io::Error::last_os_error()))
+    }
+}
+
+/// The process table comes from `ps` and sysinfo here, so there is no host table to read.
+pub fn host_processes() -> Option<Vec<crate::metrics::ProcessInfo>> {
+    None
+}
+
+pub fn own_pid() -> u32 {
+    std::process::id()
+}
+
 /// Turn off the unified buffer cache for a file, so the benchmark measures the disk.
 pub fn bypass_cache(file: &fs::File) {
     unsafe { libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1) };

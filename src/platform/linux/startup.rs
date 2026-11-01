@@ -4,14 +4,18 @@
 
 use std::{
     collections::HashSet,
-    fs,
     path::{Path, PathBuf},
 };
 
 use super::host;
 use crate::sysops::{StartupItem, home};
 
-fn config_home() -> PathBuf {
+/// The host's configuration folder. A sandbox's XDG variable points into the app's own data, so
+/// inside one the host's `~/.config` is used.
+pub(super) fn config_home() -> PathBuf {
+    if host::sandboxed() {
+        return home().join(".config");
+    }
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -66,12 +70,11 @@ pub fn set_hidden(text: &str, hidden: bool) -> String {
 }
 
 fn desktop_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(dir) else {
+    let Ok(entries) = host::read_dir(dir) else {
         return Vec::new();
     };
     entries
-        .flatten()
-        .map(|e| e.path())
+        .into_iter()
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("desktop"))
         .collect()
 }
@@ -91,7 +94,7 @@ fn unit_file(name: &str) -> Option<PathBuf> {
     ]
     .into_iter()
     .map(|dir| dir.join(name))
-    .find(|p| p.exists())
+    .find(|p| host::exists(p))
 }
 
 fn unit_items() -> Vec<StartupItem> {
@@ -117,7 +120,7 @@ fn unit_items() -> Vec<StartupItem> {
             }
             let file = unit_file(name).unwrap_or_else(|| PathBuf::from(name));
             let editable = file.parent() == Some(user_units().as_path());
-            let program = fs::read_to_string(&file).ok().and_then(|text| {
+            let program = host::read(&file).ok().and_then(|text| {
                 let exec = text.lines().find_map(|l| l.strip_prefix("ExecStart="))?;
                 let first = exec
                     .trim_start_matches(['-', '@', '+', '!'])
@@ -153,7 +156,7 @@ pub fn startup_items() -> Vec<StartupItem> {
             if !seen.insert(label.clone()) {
                 continue;
             }
-            let text = fs::read_to_string(&file).unwrap_or_default();
+            let text = host::read(&file).unwrap_or_default();
             items.push(StartupItem {
                 loaded: entry_loaded(&text),
                 program: entry_program(&text),
@@ -179,13 +182,13 @@ pub fn toggle_startup(file: &Path, enable: bool) -> Result<(), String> {
     if file.to_string_lossy().contains("..") {
         return Err("Only your own startup items can be changed".into());
     }
-    if !file.exists() {
+    if !host::exists(file) {
         return Err("Startup item not found".into());
     }
     match file.extension().and_then(|x| x.to_str()) {
         Some("desktop") if file.parent() == Some(user_autostart().as_path()) => {
-            let text = fs::read_to_string(file).map_err(|e| e.to_string())?;
-            fs::write(file, set_hidden(&text, !enable)).map_err(|e| e.to_string())
+            let text = host::read(file).map_err(|e| e.to_string())?;
+            host::write(file, set_hidden(&text, !enable).as_bytes()).map_err(|e| e.to_string())
         }
         Some("service") if file.parent() == Some(user_units().as_path()) => {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
