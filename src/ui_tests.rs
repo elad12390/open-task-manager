@@ -230,7 +230,7 @@ fn process_tree_twisty(cx: &mut TestAppContext) {
 #[gpui::test]
 #[cfg(target_os = "macos")]
 fn keyboard_navigation(cx: &mut TestAppContext) {
-    use crate::processes::{Row, RowId};
+    use crate::processes::{Row, RowId, branch_descendants};
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("otm-keys-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -409,7 +409,15 @@ fn keyboard_navigation(cx: &mut TestAppContext) {
     // Space on launchd folds the whole tree to one row and reopens one level.
     let total = state(cx).2.len();
     key(cx, "space");
-    assert_eq!(state(cx).2.len(), 1);
+    // Nothing under launchd stays shown (other top-level rows may come and go on a live Mac).
+    let still_shown = view.read_with(cx, |app, _| {
+        let below = branch_descendants(&app.snapshot.processes, 1);
+        app.rows
+            .iter()
+            .filter(|r| matches!(r, Row::Process { info, .. } if below.contains(&info.pid)))
+            .count()
+    });
+    assert_eq!(still_shown, 0);
     key(cx, "space");
     let reopened = state(cx).2.len();
     println!("space, space on launchd -> {total} rows to 1, then {reopened}");
