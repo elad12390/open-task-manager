@@ -6,8 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)publish, e.g. v0.1.0"
-        required: true
+        description: "Existing tag to publish, e.g. v0.1.0. Leave empty to build and test every artifact and upload them as workflow artifacts only."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -29,11 +30,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Check the tag matches Cargo.toml
+      - name: Read the version from Cargo.toml
         run: |
           VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-          test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Check the tag matches Cargo.toml
+        if: github.event_name == 'push' || github.event.inputs.tag != ''
+        run: |
+          test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
 
       - name: Build universal app and DMG
         run: UNIVERSAL=1 ./scripts/package.sh
@@ -41,7 +46,14 @@ jobs:
       - name: Verify universal binary
         run: lipo -info "dist/Open Task Manager.app/Contents/MacOS/otm" | grep -q "x86_64 arm64"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTaskManager-dmg
+          path: dist/OpenTaskManager-${{ env.VERSION }}.dmg
+          if-no-files-found: error
+
       - name: Publish GitHub release
+        if: github.event_name == 'push' || github.event.inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -55,6 +67,7 @@ jobs:
           fi
 
       - name: Update Homebrew cask
+        if: github.event_name == 'push' || github.event.inputs.tag != ''
         env:
           TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
@@ -72,3 +85,124 @@ jobs:
           git diff --cached --quiet && { echo "Cask already up to date"; exit 0; }
           git commit -m "open-task-manager $VERSION"
           git push origin HEAD:main
+
+  deb:
+    name: .deb ${{ matrix.arch }}, install-tested
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Read the version from Cargo.toml
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Check the tag matches Cargo.toml
+        if: github.event_name == 'push' || github.event.inputs.tag != ''
+        run: |
+          test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
+
+      - name: Build .deb in the Ubuntu 22.04 container
+        run: ci/build-deb.sh
+
+      - name: Install-test the .deb on Ubuntu 22.04, Ubuntu 24.04 and Debian 12
+        run: ci/test-deb.sh dist
+
+      - name: Checksum the .deb
+        run: |
+          cd dist
+          DEB="$(ls open-task-manager_"$VERSION"-*_${{ matrix.arch }}.deb)"
+          shasum -a 256 "$DEB" | tee "$DEB.sha256"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deb-${{ matrix.arch }}
+          path: |
+            dist/open-task-manager_*.deb
+            dist/open-task-manager_*.deb.sha256
+            dist/deb-test/
+          if-no-files-found: ignore
+
+      - name: Publish .deb to the GitHub release
+        if: (github.event_name == 'push' || github.event.inputs.tag != '') && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          DEB="$(ls open-task-manager_"$VERSION"-*_${{ matrix.arch }}.deb)"
+          gh release upload "$TAG" "$DEB" "$DEB.sha256" --clobber
+
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}, install-tested
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Read the version from Cargo.toml
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Check the tag matches Cargo.toml
+        if: github.event_name == 'push' || github.event.inputs.tag != ''
+        run: |
+          test "v$VERSION" = "$TAG" || { echo "Tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: OpenTaskManager-${{ env.VERSION }}-${{ matrix.arch }}.flatpak
+          manifest-path: packaging/flatpak/io.github.elad12390.OpenTaskManager.yml
+          cache-key: flatpak-builder-${{ github.sha }}-${{ matrix.arch }}
+          arch: ${{ matrix.arch }}
+
+      - name: Install-test the bundle in Fedora and run the selftest
+        run: ci/test-flatpak-install.sh "OpenTaskManager-${VERSION}-${{ matrix.arch }}.flatpak"
+
+      - name: Checksum the .flatpak
+        run: |
+          BUNDLE="OpenTaskManager-$VERSION-${{ matrix.arch }}.flatpak"
+          shasum -a 256 "$BUNDLE" | tee "$BUNDLE.sha256"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: |
+            OpenTaskManager-*.flatpak
+            OpenTaskManager-*.flatpak.sha256
+          if-no-files-found: ignore
+
+      - name: Publish .flatpak to the GitHub release
+        if: (github.event_name == 'push' || github.event.inputs.tag != '') && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUNDLE="OpenTaskManager-$VERSION-${{ matrix.arch }}.flatpak"
+          gh release upload "$TAG" "$BUNDLE" "$BUNDLE.sha256" --clobber

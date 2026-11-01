@@ -25,6 +25,17 @@ impl Report {
             detail.as_ref()
         );
     }
+
+    /// A check that doesn't apply here (e.g. in a bare container), with the reason; never a failure.
+    pub(crate) fn skip(&mut self, name: &str, reason: impl AsRef<str>) {
+        println!("SKIP {name}: {}", reason.as_ref());
+    }
+}
+
+/// A bare container or minimal system (a package install test), not a desktop session: the checks
+/// that need a populated system are skipped there instead of failing.
+fn minimal_system(processes: usize) -> bool {
+    processes < 20
 }
 
 pub fn run() -> i32 {
@@ -36,9 +47,10 @@ pub fn run() -> i32 {
     sleep(Duration::from_millis(500));
     let snap = sampler.sample();
     let owners: HashSet<&str> = snap.processes.iter().map(|p| p.user.as_str()).collect();
+    let minimal = minimal_system(snap.processes.len());
     r.check(
         "sample",
-        snap.processes.len() > 50 && snap.memory_total > 0,
+        snap.memory_total > 0 && (minimal || snap.processes.len() > 50),
         format!(
             "{} processes, {} owners, cpu {:.1}%",
             snap.processes.len(),
@@ -92,14 +104,24 @@ pub fn run() -> i32 {
         .iter()
         .filter(|p| crate::platform::selftest::unmeasured(p))
         .count();
-    r.check(
-        "other users' memory",
-        root_mem > 200 * 1024 * 1024 && zero_mem * 20 <= snap.processes.len(),
-        format!(
-            "root processes total {}, {zero_mem} processes with 0 memory",
-            crate::metrics::fmt_bytes(root_mem)
-        ),
-    );
+    if minimal {
+        r.skip(
+            "other users' memory",
+            format!(
+                "{} processes: a bare container, not a desktop session",
+                snap.processes.len()
+            ),
+        );
+    } else {
+        r.check(
+            "other users' memory",
+            root_mem > 200 * 1024 * 1024 && zero_mem * 20 <= snap.processes.len(),
+            format!(
+                "root processes total {}, {zero_mem} processes with 0 memory",
+                crate::metrics::fmt_bytes(root_mem)
+            ),
+        );
+    }
     let first = groups.first().map(|g| g.0.clone()).unwrap_or_default();
     let collapsed: HashSet<String> = [first.clone()].into();
     let rows_collapsed = build_rows(&snap.processes, &layout, "", &collapsed);

@@ -76,6 +76,10 @@ fn main() {
         // SAFETY: single-threaded, before the app or any other thread starts.
         unsafe { std::env::set_var("OTM_DEMO", scene) };
     }
+    if std::env::args().any(|a| a == "--version") {
+        println!("otm {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if std::env::args().any(|a| a == "--selftest") {
         std::process::exit(selftest::run());
     }

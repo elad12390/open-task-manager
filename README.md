@@ -43,6 +43,17 @@ open it and drag **Open Task Manager** into **Applications**. The app is a unive
 > The first time, right-click the app and choose **Open**, or clear the download flag:
 > `xattr -dr com.apple.quarantine "/Applications/Open Task Manager.app"`
 
+### Linux
+
+```sh
+flatpak install flathub io.github.elad12390.OpenTaskManager   # once listed on Flathub
+```
+
+Or download from the [latest release](https://github.com/elad12390/open-task-manager/releases/latest):
+
+- `OpenTaskManager-<version>-<arch>.flatpak`: `flatpak install --user ./OpenTaskManager-<version>-<arch>.flatpak`
+- `open-task-manager_<version>-1_<arch>.deb` (Ubuntu 22.04+, Debian 12+): `sudo apt install ./open-task-manager_<version>-1_<arch>.deb`
+
 ### Build from source
 
 Requires Rust (stable) and the Xcode Command Line Tools. No full Xcode is needed: GPUI compiles its Metal shaders at runtime.
