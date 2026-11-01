@@ -12,3 +12,4 @@
 .DS_Store
 *.log
 /tmp
+__pycache__/
