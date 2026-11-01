@@ -46,6 +46,16 @@ pub fn reveal(path: &str) {
     let _ = Command::new("open").args(["-R", path]).spawn();
 }
 
+/// Whether a mounted volume appears in the Disk list: the boot volume and the external volumes.
+pub fn shows_volume(mount: &Path, _fs_type: &str) -> bool {
+    mount == Path::new("/") || mount.starts_with("/Volumes/")
+}
+
+/// macOS refuses to signal only launchd and the kernel (pid 0 and 1), which `send_signal` already checks.
+pub fn is_kernel_process(_pid: u32) -> bool {
+    false
+}
+
 /// Turn off the unified buffer cache for a file, so the benchmark measures the disk.
 pub fn bypass_cache(file: &fs::File) {
     unsafe { libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1) };

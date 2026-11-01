@@ -1,7 +1,12 @@
-//! `/proc` readers: the process table (parent, owner, memory, executable path), process state, and
-//! the hardware and OS facts of the System Information panel.
+//! `/proc` and `/sys` readers: the process table (parent, owner, memory, executable path), process
+//! state and cgroup, kernel threads, and the hardware and OS facts of the System Information panel.
 
-use std::{collections::HashMap, ffi::CStr, fs, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    ffi::CStr,
+    fs,
+    path::Path,
+};
 
 use crate::{metrics::PsRow, sysops::SystemInfo};
 
@@ -32,6 +37,21 @@ fn user_name(uid: u32) -> String {
     }
 }
 
+/// The executable: its `exe` link, else argv[0] when that is an absolute path (the link of another
+/// user's process is often refused, but its command line is readable).
+fn exe_path(pid: u32) -> String {
+    if let Ok(p) = fs::read_link(format!("/proc/{pid}/exe")) {
+        return p.to_string_lossy().into_owned();
+    }
+    fs::read(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .and_then(|cmd| {
+            let arg0 = String::from_utf8_lossy(cmd.split(|&b| b == 0).next()?).into_owned();
+            arg0.starts_with('/').then_some(arg0)
+        })
+        .unwrap_or_default()
+}
+
 /// Parent, owner, resident memory and executable path of every process readable in `/proc`.
 /// Processes whose files another user keeps private are skipped or come back with empty fields.
 pub fn process_table() -> HashMap<u32, PsRow> {
@@ -50,9 +70,6 @@ pub fn process_table() -> HashMap<u32, PsRow> {
             let memory = status_value(pid, "VmRSS")
                 .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
                 .map_or(0, |kb| kb * 1024);
-            let path = fs::read_link(format!("/proc/{pid}/exe"))
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
             Some((
                 pid,
                 PsRow {
@@ -64,7 +81,7 @@ pub fn process_table() -> HashMap<u32, PsRow> {
                     },
                     cpu: 0.,
                     memory,
-                    path,
+                    path: exe_path(pid),
                 },
             ))
         })
@@ -76,9 +93,22 @@ pub fn process_state(pid: u32) -> Option<String> {
     stat_fields(pid)?.first().cloned()
 }
 
+/// The cgroup lines of a process (`0::/user.slice/…` on cgroup v2), which name its systemd unit.
+pub fn cgroup(pid: u32) -> Option<String> {
+    fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()
+}
+
 /// Kernel threads have no executable and are children of kthreadd (pid 2) or of pid 0.
 pub fn is_kernel_thread(pid: u32, ppid: Option<u32>, path_is_empty: bool) -> bool {
     pid == 2 || ppid.is_some_and(|p| p == 0 || p == 2) && path_is_empty
+}
+
+/// A process the kernel runs itself: no command line and no executable, so nothing user-level to signal.
+pub fn is_kernel_process(pid: u32) -> bool {
+    pid == 2
+        || (pid > 1
+            && fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| c.is_empty())
+            && fs::read_link(format!("/proc/{pid}/exe")).is_err())
 }
 
 fn cpu_model() -> String {
@@ -127,6 +157,79 @@ fn cpu_count(key: &str) -> u32 {
         .unwrap_or(0)
 }
 
+/// One logical CPU: its id, its (package, core) pair and its capacity, where the kernel exposes them.
+#[derive(Debug, PartialEq)]
+struct Cpu {
+    id: u32,
+    core: Option<(u32, u32)>,
+    capacity: Option<u32>,
+}
+
+fn read_u32(path: impl AsRef<Path>) -> Option<u32> {
+    fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
+fn cpus() -> Vec<Cpu> {
+    let Ok(entries) = fs::read_dir("/sys/devices/system/cpu") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let id: u32 = e.file_name().to_str()?.strip_prefix("cpu")?.parse().ok()?;
+            let dir = e.path();
+            Some(Cpu {
+                id,
+                core: read_u32(dir.join("topology/physical_package_id"))
+                    .zip(read_u32(dir.join("topology/core_id"))),
+                capacity: read_u32(dir.join("cpu_capacity")),
+            })
+        })
+        .collect()
+}
+
+/// A kernel CPU list such as `0-3,8,10-11`.
+fn parse_cpulist(list: &str) -> Vec<u32> {
+    list.trim()
+        .split(',')
+        .filter_map(|part| match part.split_once('-') {
+            Some((a, b)) => Some((a.parse::<u32>().ok()?..=b.parse().ok()?).collect::<Vec<_>>()),
+            None => part.parse().ok().map(|n| vec![n]),
+        })
+        .flatten()
+        .collect()
+}
+
+/// (physical cores, performance cores, efficiency cores). P and E cores come from ARM's per-CPU
+/// capacity, or from Intel hybrid's `cpu_core` and `cpu_atom` lists; without either they are 0.
+fn count_cores(cpus: &[Cpu], hybrid: (&[u32], &[u32])) -> (u32, u32, u32) {
+    let physical = unique_cores(cpus.iter());
+    let capacities: BTreeSet<u32> = cpus.iter().filter_map(|c| c.capacity).collect();
+    if let Some(&top) = capacities.last().filter(|_| capacities.len() >= 2) {
+        let perf = unique_cores(cpus.iter().filter(|c| c.capacity == Some(top)));
+        let eff = unique_cores(cpus.iter().filter(|c| c.capacity.is_some_and(|x| x < top)));
+        return (physical, perf, eff);
+    }
+    let (p_list, e_list) = hybrid;
+    if !p_list.is_empty() && !e_list.is_empty() {
+        let perf = unique_cores(cpus.iter().filter(|c| p_list.contains(&c.id)));
+        let eff = unique_cores(cpus.iter().filter(|c| e_list.contains(&c.id)));
+        return (physical, perf, eff);
+    }
+    (physical, 0, 0)
+}
+
+/// How many distinct physical cores the CPUs belong to (SMT threads share one core).
+fn unique_cores<'a>(cpus: impl Iterator<Item = &'a Cpu>) -> u32 {
+    cpus.filter_map(|c| c.core).collect::<HashSet<_>>().len() as u32
+}
+
+fn cpu_list(path: &str) -> Vec<u32> {
+    fs::read_to_string(path)
+        .map(|s| parse_cpulist(&s))
+        .unwrap_or_default()
+}
+
 pub fn system_info() -> SystemInfo {
     let uptime: f64 = fs::read_to_string("/proc/uptime")
         .ok()
@@ -136,6 +239,13 @@ pub fn system_info() -> SystemInfo {
     let release = fs::read_to_string(Path::new("/proc/sys/kernel/osrelease"))
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
+    let (physical, performance, efficiency) = count_cores(
+        &cpus(),
+        (
+            &cpu_list("/sys/devices/cpu_core/cpus"),
+            &cpu_list("/sys/devices/cpu_atom/cpus"),
+        ),
+    );
     SystemInfo {
         model: fs::read_to_string("/sys/devices/virtual/dmi/id/product_name")
             .map(|s| s.trim().to_string())
@@ -145,9 +255,66 @@ pub fn system_info() -> SystemInfo {
         build: release,
         arch: std::env::consts::ARCH.to_string(),
         memory: mem_total(),
-        physical_cores: cpu_count("processor"),
-        performance_cores: 0,
-        efficiency_cores: 0,
+        physical_cores: if physical == 0 {
+            cpu_count("processor")
+        } else {
+            physical
+        },
+        performance_cores: performance,
+        efficiency_cores: efficiency,
         booted: now.saturating_sub(uptime as u64),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cpu(id: u32, core: (u32, u32), capacity: Option<u32>) -> Cpu {
+        Cpu {
+            id,
+            core: Some(core),
+            capacity,
+        }
+    }
+
+    #[test]
+    fn cpulists_expand_ranges() {
+        assert_eq!(parse_cpulist("0-3,8,10-11\n"), vec![0, 1, 2, 3, 8, 10, 11]);
+        assert_eq!(parse_cpulist("5"), vec![5]);
+        assert!(parse_cpulist("").is_empty());
+    }
+
+    #[test]
+    fn smt_threads_count_once_per_core() {
+        let cpus = [
+            cpu(0, (0, 0), None),
+            cpu(1, (0, 0), None),
+            cpu(2, (0, 1), None),
+        ];
+        assert_eq!(count_cores(&cpus, (&[], &[])), (2, 0, 0));
+    }
+
+    #[test]
+    fn arm_capacity_splits_performance_and_efficiency() {
+        let cpus = [
+            cpu(0, (0, 0), Some(446)),
+            cpu(1, (0, 1), Some(446)),
+            cpu(2, (0, 2), Some(1024)),
+            cpu(3, (0, 3), Some(1024)),
+            cpu(4, (0, 4), Some(1024)),
+        ];
+        assert_eq!(count_cores(&cpus, (&[], &[])), (5, 3, 2));
+    }
+
+    #[test]
+    fn intel_hybrid_lists_split_the_cores() {
+        let cpus = [
+            cpu(0, (0, 0), None),
+            cpu(1, (0, 0), None),
+            cpu(2, (0, 1), None),
+            cpu(16, (0, 16), None),
+        ];
+        assert_eq!(count_cores(&cpus, (&[0, 1, 2], &[16])), (3, 2, 1));
     }
 }

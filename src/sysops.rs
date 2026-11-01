@@ -73,6 +73,8 @@ pub struct Service {
     pub status: i32,
     /// The program of a service that is not running, from its launch agent or daemon plist.
     pub program: Option<PathBuf>,
+    /// "System" or "User" on Linux; empty where a platform has a single scope.
+    pub scope: &'static str,
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +102,7 @@ pub fn signal_process(pid: u32, force: bool) -> Result<(), String> {
 
 /// Send any signal (TERM, KILL, STOP to suspend, CONT to resume). launchd and the kernel are refused.
 pub fn send_signal(pid: u32, sig: i32) -> Result<(), String> {
-    if pid <= 1 {
+    if pid <= 1 || crate::platform::is_kernel_process(pid) {
         return Err("Can't signal launchd or the kernel".into());
     }
     if unsafe { libc::kill(pid as i32, sig) } == 0 {

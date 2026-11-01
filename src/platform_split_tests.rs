@@ -8,6 +8,8 @@ use gpui::WindowAppearance;
 #[cfg(target_os = "linux")]
 use crate::categories::{OS_OWNER, categorize};
 #[cfg(target_os = "linux")]
+const TOOLS: &str = "Command-line & Other";
+#[cfg(target_os = "linux")]
 use crate::metrics::ProcessInfo;
 use crate::{
     categories::{APPS, SYSTEM_GROUP, TOPS},
@@ -88,11 +90,14 @@ fn linux_splits_kernel_and_services_from_your_processes() {
     let cats = categorize(&procs);
     assert_eq!(cats[&2], (SYSTEM_GROUP, "Kernel threads".to_string()));
     assert_eq!(cats[&1], (SYSTEM_GROUP, "Services".to_string()));
-    assert_eq!(cats[&4242], (APPS, "bash".to_string()));
-    assert_eq!(cats[&4300], (APPS, "sleep".to_string()));
+    assert_eq!(cats[&4242], (TOOLS, "bash".to_string()));
+    assert_eq!(cats[&4300], (TOOLS, "sleep".to_string()));
     let owners = crate::categories::owners(&procs);
     assert_eq!(owners[&1], OS_OWNER);
-    assert_eq!(owners[&4300], "sleep");
+    assert_eq!(
+        owners[&4300], "bash",
+        "a tool is owned by the outermost tool that runs it"
+    );
 }
 
 #[cfg(target_os = "linux")]
