@@ -36,6 +36,7 @@ fn app_rows(list: &[(&str, &str, u64)]) -> Vec<InstalledApp> {
             version: version.into(),
             path: PathBuf::from(format!("/Applications/{name}.app")),
             bytes: Some(mb * MB),
+            source: "Application",
         })
         .collect()
 }
@@ -95,6 +96,15 @@ fn saved(dir: &Path) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+/// The Apps columns in order; Linux adds the Source column at the end.
+fn apps_titles<const N: usize>(columns: [&'static str; N]) -> Vec<&'static str> {
+    let mut titles = columns.to_vec();
+    if crate::platform::CAPS.show_app_source {
+        titles.push("Source");
+    }
+    titles
+}
+
 fn saved_titles(dir: &Path, table: &str) -> Vec<String> {
     saved(dir)[table]["columns"]
         .as_array()
@@ -129,16 +139,22 @@ fn listing_header_drag_reorders_and_saves(cx: &mut TestAppContext) {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = data_dir("header-drag");
     let (view, cx) = open_apps(cx, &APPS);
-    assert_eq!(titles(&view, cx), ["Name", "Version", "Size", "Location"]);
+    assert_eq!(
+        titles(&view, cx),
+        apps_titles(["Name", "Version", "Size", "Location"])
+    );
 
     let from = center(bounds(cx, "sort-apps-0"));
     let to = center(bounds(cx, "sort-apps-2"));
     drag(cx, from, to);
 
-    assert_eq!(titles(&view, cx), ["Version", "Size", "Name", "Location"]);
+    assert_eq!(
+        titles(&view, cx),
+        apps_titles(["Version", "Size", "Name", "Location"])
+    );
     assert_eq!(
         saved_titles(&dir, "apps"),
-        ["Version", "Size", "Name", "Location"],
+        apps_titles(["Version", "Size", "Name", "Location"]),
         "the new order is saved"
     );
 }
@@ -206,7 +222,10 @@ fn listing_columns_menu_hides_a_column(cx: &mut TestAppContext) {
     // Size slides left into the place of the hidden Version column (its 120 px default).
     let shift = size_before - f32::from(bounds(cx, "sort-apps-2").origin.x);
     assert!((shift - 120.).abs() < 1., "Size moved left by {shift} px");
-    assert_eq!(titles(&view, cx), ["Name", "Version", "Size", "Location"]);
+    assert_eq!(
+        titles(&view, cx),
+        apps_titles(["Name", "Version", "Size", "Location"])
+    );
     assert_eq!(saved(&dir)["apps"]["columns"][1]["visible"], false);
 }
 
@@ -222,10 +241,13 @@ fn listing_columns_menu_rows_drag_to_reorder(cx: &mut TestAppContext) {
     let to = center(bounds(cx, "col-drop-3-bottom"));
     drag(cx, from, to);
 
-    assert_eq!(titles(&view, cx), ["Version", "Size", "Location", "Name"]);
+    assert_eq!(
+        titles(&view, cx),
+        apps_titles(["Version", "Size", "Location", "Name"])
+    );
     assert_eq!(
         saved_titles(&dir, "apps"),
-        ["Version", "Size", "Location", "Name"]
+        apps_titles(["Version", "Size", "Location", "Name"])
     );
 }
 

@@ -3,7 +3,7 @@
 //! `/proc` and `/sys` and shells out to `systemctl`, `xdg-open` and friends.
 
 #[cfg(target_os = "linux")]
-mod linux;
+pub(crate) mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
@@ -71,4 +71,6 @@ pub struct Caps {
     pub glass_blur: bool,
     /// Whether the menu bar is drawn inside the window (no global menu bar on this platform).
     pub in_window_menu: bool,
+    /// Whether the apps list shows where each app came from (Flatpak, Snap, packages…).
+    pub show_app_source: bool,
 }

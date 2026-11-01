@@ -110,6 +110,7 @@ pub fn installed_apps() -> Vec<InstalledApp> {
                     .unwrap_or_else(|| "—".into()),
                 path,
                 bytes: None,
+                source: "Application",
             });
         }
     }

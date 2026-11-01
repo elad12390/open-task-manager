@@ -1,6 +1,7 @@
-//! Linux: `/proc` for processes and hardware. Services, startup items, sockets, installed apps and
-//! power are placeholders for now (empty lists, or "Not available yet" for actions).
+//! Linux: `/proc` for processes and hardware, desktop entries for installed apps. Services, startup
+//! items, sockets and power are placeholders for now (empty lists, or "Not available yet" for actions).
 
+pub mod apps;
 pub mod icons;
 mod proc;
 pub mod selftest;
@@ -16,9 +17,10 @@ use gpui::{TitlebarOptions, WindowBackgroundAppearance};
 use super::{Caps, Chrome, WindowRole};
 use crate::{
     metrics::ProcessInfo,
-    sysops::{Connection, InstalledApp, Power, Service, ServiceAction, StartupItem},
+    sysops::{Connection, Power, Service, ServiceAction, StartupItem},
 };
 
+pub use apps::{installed_apps, trash_app};
 pub use proc::{process_state, process_table, system_info};
 
 const NOT_YET: &str = "Not available yet";
@@ -31,9 +33,10 @@ pub const CAPS: Caps = Caps {
     mod_label: "Ctrl+",
     reveal_label: "Show in Files",
     reveal_app_label: "Show App Folder",
-    can_uninstall: false,
+    can_uninstall: true,
     glass_blur: false,
     in_window_menu: true,
+    show_app_source: true,
 };
 
 pub fn data_root() -> PathBuf {
@@ -120,14 +123,6 @@ pub fn control_service(_label: &str, _action: ServiceAction) -> Result<(), Strin
 
 pub fn connections() -> Vec<Connection> {
     Vec::new()
-}
-
-pub fn installed_apps() -> Vec<InstalledApp> {
-    Vec::new()
-}
-
-pub fn trash_app(_path: &Path) -> Result<(), String> {
-    Err(NOT_YET.into())
 }
 
 pub fn power() -> Power {
