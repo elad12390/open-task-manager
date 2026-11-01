@@ -36,7 +36,7 @@
   <url type="vcs-browser">https://github.com/elad12390/open-task-manager</url>
   <screenshots>
     <screenshot type="default">
-      <caption>The overview: CPU, memory, network, disk and system information</caption>
+      <caption>Every process with its app, CPU, memory and disk activity</caption>
       <image>https://raw.githubusercontent.com/elad12390/open-task-manager/main/packaging/linux/screenshots/overview.png</image>
     </screenshot>
     <screenshot>

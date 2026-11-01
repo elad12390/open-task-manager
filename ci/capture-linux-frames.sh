@@ -26,10 +26,10 @@ store=(overview process-tree)
 mkdir -p "$out" "$frames" "$work/home/.config" "$work/data"
 printf '[Icons]\nTheme=Papirus\n' > "$work/home/.config/kdeglobals"
 
-if ! command -v openbox >/dev/null || [ ! -d /usr/share/icons/Papirus ]; then
+if ! command -v openbox >/dev/null || ! command -v xdotool >/dev/null || [ ! -d /usr/share/icons/Papirus ]; then
   apt-get update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-    openbox papirus-icon-theme adwaita-icon-theme >/dev/null
+    openbox xdotool papirus-icon-theme adwaita-icon-theme >/dev/null
 fi
 
 cargo build --quiet --manifest-path "$root/Cargo.toml"
@@ -50,15 +50,20 @@ openbox >"$work/openbox.log" 2>&1 &
 wm=$!
 sleep 1
 
-export HOME="$work/home" OTM_DATA_DIR="$work/data" OTM_WINDOW_SIZE=1440x860
+mkdir -p -m 700 "$work/xdg"
+export HOME="$work/home" OTM_DATA_DIR="$work/data" OTM_WINDOW_SIZE=1440x860 XDG_RUNTIME_DIR="$work/xdg"
 
 # run_scene <scene> <captions: 1|0> <frame-prefix>: runs one tour, saves a frame every two seconds.
 run_scene() {
   local scene="$1" captions="$2" prefix="$3" app win t=0
-  OTM_DEMO_CAPTIONS="$captions" "$bin" --demo "$scene" >"$work/$scene.log" 2>&1 &
+  # Each run gets a fresh data folder: a scene that changes the columns saves its layout.
+  mkdir -p "$work/data-$scene-$captions"
+  # No seasonal theme: the date a capture runs on shouldn't decide how the screenshots look.
+  printf '{"holiday_theme": "Off"}\n' >"$work/data-$scene-$captions/native-settings.json"
+  OTM_DATA_DIR="$work/data-$scene-$captions" OTM_DEMO_CAPTIONS="$captions" "$bin" --demo "$scene" >"$work/$scene.log" 2>&1 &
   app=$!
   for _ in $(seq 1 60); do
-    win="$(xdotool search --onlyvisible --name '^Open Task Manager$' 2>/dev/null | tail -1 || true)"
+    win="$(xdotool search --onlyvisible --class 'OpenTaskManager' 2>/dev/null | tail -1 || true)"
     [ -n "$win" ] && break
     sleep 0.5
   done
@@ -68,13 +73,16 @@ run_scene() {
     kill "$app" 2>/dev/null || true
     return 1
   fi
-  while kill -0 "$app" 2>/dev/null; do
+  # A tour ends on its own; 45 s bounds a scene that keeps the app open.
+  while kill -0 "$app" 2>/dev/null && ((t < 45)); do
     sleep 1
     t=$((t + 1))
     if ((t % 2 == 0)); then
-      import -window "$win" "$prefix-$(printf '%02d' "$t").png" 2>/dev/null || true
+      # import waits forever on a window that closes mid-capture.
+      timeout 5 import -window "$win" "$prefix-$(printf '%02d' "$t").png" 2>/dev/null || true
     fi
   done
+  kill "$app" 2>/dev/null || true
   wait "$app" || true
 }
 
@@ -84,8 +92,9 @@ done
 
 for scene in "${store[@]}"; do
   run_scene "$scene" 0 "$work/store-$scene"
-  last="$(ls "$work/store-$scene"-*.png | sed -n '2p')"
-  cp "$last" "$out/$scene.png"
+  # The richest frame (most colours: the most rows and icons on screen).
+  best="$(for f in "$work/store-$scene"-*.png; do echo "$(identify -format '%k' "$f") $f"; done | sort -n | tail -1 | cut -d' ' -f2)"
+  cp "$best" "$out/$scene.png"
 done
 
 min=999999
