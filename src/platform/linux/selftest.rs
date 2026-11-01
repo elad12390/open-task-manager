@@ -60,7 +60,7 @@ pub fn app_checks(r: &mut Report, snap: &Snapshot) {
         .count();
     // Started by a system service (a CI runner), this process rightly belongs to the OS; only a
     // user session (a user@ or session- cgroup) has an app to own it.
-    let in_session = fs::read_to_string("/proc/self/cgroup")
+    let in_session = host::read("/proc/self/cgroup")
         .map(|c| c.contains("/user@") || c.contains("/session-") || !c.contains(".service"))
         .unwrap_or(true);
     r.check(
