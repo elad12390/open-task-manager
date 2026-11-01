@@ -18,6 +18,8 @@ mod holidays;
 mod icon_pack_tests;
 mod icons;
 #[cfg(test)]
+mod linux_flatpak_tests;
+#[cfg(test)]
 mod listing_autocomplete_tests;
 mod menus;
 mod metrics;
@@ -89,7 +91,7 @@ fn main() {
                     titlebar: chrome.titlebar,
                     window_background: chrome.background,
                     window_min_size: Some(size(px(860.), px(520.))),
-                    app_id: Some("org.opentaskmanager.native".into()),
+                    app_id: Some(platform::APP_ID.into()),
                     focus: !background,
                     // A covered window stops drawing, so test runs float above others without taking focus.
                     kind: if background {

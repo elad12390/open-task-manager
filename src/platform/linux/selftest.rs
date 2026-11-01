@@ -1,8 +1,30 @@
 //! Linux checks for `otm --selftest`: the operating system / your processes split and owners.
 
+use super::host;
 use crate::{categories, metrics::Snapshot, selftest::Report};
 
 pub fn app_checks(r: &mut Report, snap: &Snapshot) {
+    let started = std::time::Instant::now();
+    let kernel = host::run(&["uname", "-s"]);
+    let route = if host::sandboxed() {
+        "flatpak-spawn --host"
+    } else {
+        "direct"
+    };
+    r.check(
+        "host commands",
+        kernel.is_ok_and(|os| os.trim() == "Linux"),
+        format!(
+            "{route} round trip took {} ms",
+            started.elapsed().as_millis()
+        ),
+    );
+    r.check(
+        "host files",
+        host::read("/etc/os-release").is_ok_and(|text| text.contains("ID=")),
+        format!("reading /etc/os-release through the {route} route"),
+    );
+
     let owners = categories::owners(&snap.processes);
     let me = std::process::id();
     let mine = owners.get(&me).cloned().unwrap_or_default();

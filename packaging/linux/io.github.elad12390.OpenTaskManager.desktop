@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Open Task Manager
+GenericName=Task Manager
+Comment=See what is running, how much CPU and memory it uses, and quit what is stuck
+Exec=otm
+Icon=io.github.elad12390.OpenTaskManager
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.elad12390.OpenTaskManager
+Categories=System;Monitor;
+Keywords=task;process;monitor;cpu;memory;performance;processes;kill;
