@@ -1,4 +1,4 @@
-id: io.github.elad12390.OpenTaskManager
+id: io.github.elad12390.open_task_manager
 runtime: org.freedesktop.Platform
 runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
@@ -25,11 +25,11 @@ modules:
     build-commands:
       - cargo build --release --locked --offline
       - install -Dm755 target/release/otm /app/bin/otm
-      - install -Dm644 packaging/linux/io.github.elad12390.OpenTaskManager.desktop /app/share/applications/io.github.elad12390.OpenTaskManager.desktop
-      - install -Dm644 packaging/linux/io.github.elad12390.OpenTaskManager.metainfo.xml /app/share/metainfo/io.github.elad12390.OpenTaskManager.metainfo.xml
+      - install -Dm644 packaging/linux/io.github.elad12390.open_task_manager.desktop /app/share/applications/io.github.elad12390.open_task_manager.desktop
+      - install -Dm644 packaging/linux/io.github.elad12390.open_task_manager.metainfo.xml /app/share/metainfo/io.github.elad12390.open_task_manager.metainfo.xml
       - install -d /app/share/icons
       - cp -r packaging/linux/icons/hicolor /app/share/icons/
-      - install -Dm644 LICENSE /app/share/licenses/io.github.elad12390.OpenTaskManager/LICENSE
+      - install -Dm644 LICENSE /app/share/licenses/io.github.elad12390.open_task_manager/LICENSE
     sources:
       - type: dir
         path: ../..

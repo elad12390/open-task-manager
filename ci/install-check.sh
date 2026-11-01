@@ -4,8 +4,8 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-DESKTOP=/usr/share/applications/io.github.elad12390.OpenTaskManager.desktop
-ICON=/usr/share/icons/hicolor/512x512/apps/io.github.elad12390.OpenTaskManager.png
+DESKTOP=/usr/share/applications/io.github.elad12390.open_task_manager.desktop
+ICON=/usr/share/icons/hicolor/512x512/apps/io.github.elad12390.open_task_manager.png
 
 apt-get update -qq
 apt-get install -y -qq /debs/open-task-manager_*.deb
@@ -25,7 +25,7 @@ echo "== desktop entry"
 desktop-file-validate "$DESKTOP"
 grep -qx 'Exec=otm' "$DESKTOP"
 test -f "$ICON"
-test -f /usr/share/metainfo/io.github.elad12390.OpenTaskManager.metainfo.xml
+test -f /usr/share/metainfo/io.github.elad12390.open_task_manager.metainfo.xml
 
 echo "== launch (must still be running after 12 s, screenshot at 8 s)"
 export XDG_RUNTIME_DIR=/tmp/xdg-runtime

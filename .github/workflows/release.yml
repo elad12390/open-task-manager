@@ -184,16 +184,18 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: OpenTaskManager-${{ env.VERSION }}-${{ matrix.arch }}.flatpak
-          manifest-path: packaging/flatpak/io.github.elad12390.OpenTaskManager.yml
+          manifest-path: packaging/flatpak/io.github.elad12390.open_task_manager.yml
           cache-key: flatpak-builder-${{ github.sha }}-${{ matrix.arch }}
           arch: ${{ matrix.arch }}
           upload-artifact: false
 
       - name: Lint the manifest, MetaInfo and repo
         run: |
-          flatpak-builder-lint manifest packaging/flatpak/io.github.elad12390.OpenTaskManager.yml
-          flatpak-builder-lint appstream packaging/linux/io.github.elad12390.OpenTaskManager.metainfo.xml
-          flatpak-builder-lint repo repo
+          # flatpak-spawn access is the one expected finding: Flathub grants it per app (see FLATHUB.md).
+          ex=packaging/flatpak/lint-exceptions.json
+          flatpak-builder-lint --exceptions --user-exceptions "$ex" manifest packaging/flatpak/io.github.elad12390.open_task_manager.yml
+          flatpak-builder-lint --exceptions --user-exceptions "$ex" appstream packaging/linux/io.github.elad12390.open_task_manager.metainfo.xml
+          flatpak-builder-lint --exceptions --user-exceptions "$ex" repo repo
 
       - uses: actions/upload-artifact@v4
         with:

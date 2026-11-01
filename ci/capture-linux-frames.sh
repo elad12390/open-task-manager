@@ -63,7 +63,7 @@ run_scene() {
   OTM_DATA_DIR="$work/data-$scene-$captions" OTM_DEMO_CAPTIONS="$captions" "$bin" --demo "$scene" >"$work/$scene.log" 2>&1 &
   app=$!
   for _ in $(seq 1 60); do
-    win="$(xdotool search --onlyvisible --class 'OpenTaskManager' 2>/dev/null | tail -1 || true)"
+    win="$(xdotool search --onlyvisible --class 'open_task_manager' 2>/dev/null | tail -1 || true)"
     [ -n "$win" ] && break
     sleep 0.5
   done

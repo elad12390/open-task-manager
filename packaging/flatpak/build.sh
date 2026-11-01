@@ -6,7 +6,7 @@
 # the bundle lands in dist/ in this checkout. Set OTM_FLATPAK_IMAGE to use another builder image.
 set -euo pipefail
 
-app_id=io.github.elad12390.OpenTaskManager
+app_id=io.github.elad12390.open_task_manager
 lane=/work/linux-flatpak
 manifest=$lane/packaging/flatpak/$app_id.yml
 image=${OTM_FLATPAK_IMAGE:-ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08}

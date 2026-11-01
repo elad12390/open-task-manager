@@ -311,7 +311,7 @@ const CODE_CG: &str =
 const FILES_CG: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-org.gnome.Nautilus-1520.scope";
 const TERMINAL_CG: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice/gnome-terminal-server.service";
 const VTE_CG: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice/vte-spawn-3a1e.scope";
-const OTM_CG: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-io.github.elad12390.OpenTaskManager-1700.scope";
+const OTM_CG: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-io.github.elad12390.open_task_manager-1700.scope";
 
 /// The cgroup of each fictional process (pid, cgroup as `/proc/<pid>/cgroup` reads it).
 const CGROUPS: &[(u32, &str)] = &[
@@ -380,7 +380,7 @@ const NAMES: &[(&str, &str)] = &[
     ("code", "Visual Studio Code"),
     ("org.gnome.Nautilus", "Files"),
     ("org.gnome.Terminal", "Terminal"),
-    ("io.github.elad12390.OpenTaskManager", "Open Task Manager"),
+    ("io.github.elad12390.open_task_manager", "Open Task Manager"),
 ];
 
 /// The theme icons of the fictional apps' executables.
@@ -549,7 +549,7 @@ pub fn machine() -> Machine {
             (
                 "Open Task Manager",
                 "0.1.0",
-                "/var/lib/flatpak/app/io.github.elad12390.OpenTaskManager",
+                "/var/lib/flatpak/app/io.github.elad12390.open_task_manager",
                 24,
                 "Flatpak",
             ),

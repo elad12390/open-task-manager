@@ -23,7 +23,7 @@ fn sandbox_is_detected_from_the_flatpak_info_marker() {
     assert!(!host::sandboxed_under(&root));
     fs::write(
         root.join(".flatpak-info"),
-        "[Application]\nname=io.github.elad12390.OpenTaskManager\n",
+        "[Application]\nname=io.github.elad12390.open_task_manager\n",
     )
     .unwrap();
     assert!(host::sandboxed_under(&root));
