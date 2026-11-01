@@ -26,7 +26,18 @@
 
 ## Install
 
-### Homebrew (recommended)
+### One line (macOS and Linux)
+
+```sh
+curl -fsSL https://elad12390.github.io/open-task-manager/install.sh | sh
+```
+
+It picks the build for your computer and checks its SHA-256 before installing: the Homebrew cask (or the DMG
+into Applications) on macOS; the Flatpak on Linux when `flatpak` is installed, else the `.deb` through `apt`.
+`OTM_INSTALL=flatpak` or `OTM_INSTALL=deb` chooses the Linux format; `OTM_DRY_RUN=1` only prints what it would do.
+The [website](https://elad12390.github.io/open-task-manager/)'s Download button also picks your system's file.
+
+### Homebrew
 
 ```sh
 brew install --cask elad12390/tap/open-task-manager
