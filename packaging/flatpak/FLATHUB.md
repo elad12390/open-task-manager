@@ -77,8 +77,8 @@ network, disk, services and startup items. Source: https://github.com/elad12390/
   sandbox sees only its own. Host commands (process data, `systemctl`, `du`, `dpkg-query`, and the actions the
   user chooses such as quit or restart) run through `flatpak-spawn --host`. The app has no other way to read the
   host's process table. Mission Center (io.missioncenter.MissionCenter) requests the same permission for the same
-  reason.
-- `--system-talk-name=org.freedesktop.systemd1`: list and control system services.
+  reason. Services are listed and controlled with `systemctl` on the host this way too, so the app needs no
+  system-bus access to systemd.
 - `--system-talk-name=org.freedesktop.PolicyKit1`: ask for authorization when an action needs root, so the app itself never runs as root.
 - `--system-talk-name=org.freedesktop.UPower`: battery and power state.
 - `--talk-name=org.freedesktop.FileManager1`: show a file in the file manager.
@@ -103,7 +103,8 @@ from the host through `flatpak-spawn --host`.
 - The linter may report `finish-args-flatpak-spawn-access` for `org.freedesktop.Flatpak`. Flathub grants
   exceptions case by case in the flatpak-builder-lint exceptions file; the exception request has to explain
   this permission.
-- Only the aarch64 build has been run locally. The x86_64 build is untested until a Flathub test build runs.
+- The release workflow builds both bundles (x86_64 and aarch64) with flatpak-builder on GitHub's runners and
+  install-tests each in a clean Fedora container; a Flathub test build (`bot, build`) is still the final word.
 
 ## Maintenance
 

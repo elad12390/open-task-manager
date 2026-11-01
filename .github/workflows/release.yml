@@ -123,6 +123,8 @@ jobs:
 
       - name: Checksum the .deb
         run: |
+          # The build container writes dist/ as root.
+          sudo chown -R "$(id -u):$(id -g)" dist
           cd dist
           DEB="$(ls open-task-manager_"$VERSION"-*_${{ matrix.arch }}.deb)"
           shasum -a 256 "$DEB" | tee "$DEB.sha256"
