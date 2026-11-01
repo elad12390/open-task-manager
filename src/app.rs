@@ -151,8 +151,12 @@ pub struct OtmApp {
     pub rows: Rc<Vec<Row>>,
     pub resizing: Option<Resize>,
     pub column_menu: bool,
-    /// Sort chosen for each table outside the process list (see `tables`).
-    pub table_sorts: std::collections::HashMap<&'static str, (usize, bool)>,
+    /// The table whose Columns menu is open: "processes" or a listing or Disk table's id.
+    pub column_menu_table: &'static str,
+    /// Column layout of each table outside the process list (see `tables`).
+    pub table_layouts: std::collections::HashMap<&'static str, crate::tables::ListLayout>,
+    /// A column of a table outside the process list being resized.
+    pub list_resizing: Option<crate::tables::ListResize>,
     /// The listing page's data is still being read.
     pub listing_loading: bool,
     /// The listing's list, for its on-screen width (the last column fills what is left).
@@ -182,6 +186,10 @@ pub struct OtmApp {
     pub scroll: UniformListScrollHandle,
     /// Horizontal scroll of the process table (header and rows together).
     pub hscroll: gpui::ScrollHandle,
+    /// Horizontal scroll of the listing tables and of the two Disk Space tables.
+    pub listing_hscroll: gpui::ScrollHandle,
+    pub folders_hscroll: gpui::ScrollHandle,
+    pub scans_hscroll: gpui::ScrollHandle,
     /// Scroll position of the pages whose body can overflow (see `scrollbar::scroll_area`).
     pub overview_scroll: gpui::ScrollHandle,
     pub disk_scroll: gpui::ScrollHandle,
@@ -214,6 +222,8 @@ pub struct OtmApp {
     pub icons_requested: HashSet<String>,
     /// Whether an icon render is running; the next batch waits for it.
     pub icons_rendering: bool,
+    /// Off in tests unless they check icons: AppKit's renderer (osascript) can stall a headless run.
+    pub icons_enabled: bool,
     /// Owning app name -> its bundle path (for icons on owner rows).
     pub owner_bundles: std::collections::HashMap<String, String>,
     /// Right-click menu: the row it is for and where it opened.
@@ -233,7 +243,7 @@ impl OtmApp {
     /// Render (once, in the background, a batch at a time) the icons the tables show: the open
     /// listing's rows, the processes and the folders of the last disk scan.
     pub fn request_icons(&mut self, cx: &mut Context<Self>) {
-        if self.icons_rendering {
+        if !self.icons_enabled || self.icons_rendering {
             return;
         }
         for p in &self.snapshot.processes {
@@ -370,7 +380,9 @@ impl OtmApp {
             rows: Rc::new(Vec::new()),
             resizing: None,
             column_menu: false,
-            table_sorts: Default::default(),
+            column_menu_table: "processes",
+            table_layouts: Default::default(),
+            list_resizing: None,
             listing_loading: false,
             listing_scroll: UniformListScrollHandle::new(),
             column_menu_just_closed: false,
@@ -388,6 +400,9 @@ impl OtmApp {
             focus,
             scroll: UniformListScrollHandle::new(),
             hscroll: gpui::ScrollHandle::new(),
+            listing_hscroll: gpui::ScrollHandle::new(),
+            folders_hscroll: gpui::ScrollHandle::new(),
+            scans_hscroll: gpui::ScrollHandle::new(),
             overview_scroll: gpui::ScrollHandle::new(),
             disk_scroll: gpui::ScrollHandle::new(),
             power_scroll: gpui::ScrollHandle::new(),
@@ -416,6 +431,7 @@ impl OtmApp {
             icons: Default::default(),
             icons_requested: HashSet::new(),
             icons_rendering: false,
+            icons_enabled: !cfg!(test),
             owner_bundles: Default::default(),
             context_menu: None,
             confirm: None,
@@ -697,6 +713,19 @@ impl OtmApp {
             }
             return;
         }
+        if let Some(r) = self.list_resizing {
+            if ev.pressed_button == Some(MouseButton::Left) {
+                let width = r.start_width + f32::from(ev.position.x - r.start_x);
+                if let Some(l) = self.table_layouts.get_mut(r.table) {
+                    l.set_width(r.pos, width);
+                }
+                cx.notify();
+            } else {
+                self.list_resizing = None;
+                self.save_table_layouts();
+            }
+            return;
+        }
         let Some(r) = &self.resizing else { return };
         if ev.pressed_button != Some(MouseButton::Left) {
             self.resizing = None;
@@ -712,6 +741,9 @@ impl OtmApp {
         self.column_menu_just_closed = false;
         self.group_menu_just_closed = false;
         self.thumb_drag = None;
+        if self.list_resizing.take().is_some() {
+            self.save_table_layouts();
+        }
         if self.resizing.take().is_some() {
             self.layout_changed(cx);
         }

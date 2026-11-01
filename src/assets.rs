@@ -43,6 +43,10 @@ pub const ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/gauge.svg"),
     ),
     (
+        "icons/grip-vertical.svg",
+        include_bytes!("../assets/icons/grip-vertical.svg"),
+    ),
+    (
         "icons/hard-drive.svg",
         include_bytes!("../assets/icons/hard-drive.svg"),
     ),
