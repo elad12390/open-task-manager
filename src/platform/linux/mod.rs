@@ -66,14 +66,24 @@ pub fn host_processes() -> Option<Vec<ProcessInfo>> {
 
 /// Sends a signal to a process of the host's table, through the host inside a sandbox.
 pub fn signal(pid: u32, sig: i32) -> Result<(), String> {
-    if host::sandboxed() {
-        return host("kill", &[&format!("-{sig}"), &pid.to_string()]).map(|_| ());
-    }
-    if unsafe { libc::kill(pid as i32, sig) } == 0 {
+    let (flag, id) = (format!("-{sig}"), pid.to_string());
+    let direct = if host::sandboxed() {
+        host("kill", &[&flag, &id]).map(|_| ())
+    } else if unsafe { libc::kill(pid as i32, sig) } == 0 {
         Ok(())
     } else {
         Err(format!("PID {pid}: {}", std::io::Error::last_os_error()))
+    };
+    match direct {
+        // Another user's process: polkit asks for the password each time; the app never runs as root.
+        Err(e) if needs_root(&e) => host("pkexec", &["kill", &flag, &id]).map(|_| ()),
+        other => other,
     }
+}
+
+/// Whether a failed signal was refused for lack of permission (EPERM), from `kill(2)` or the `kill` command.
+fn needs_root(error: &str) -> bool {
+    error.contains("Operation not permitted")
 }
 
 pub fn data_root() -> PathBuf {
@@ -240,6 +250,19 @@ fn classify_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_permission_errors_ask_polkit() {
+        // kill(2) natively, and the kill command through the Flatpak host route.
+        assert!(needs_root("PID 1: Operation not permitted (os error 1)"));
+        assert!(needs_root(
+            "kill failed: kill: sending signal to 1 failed: Operation not permitted"
+        ));
+        assert!(!needs_root("PID 99999: No such process (os error 3)"));
+        assert!(!needs_root(
+            "kill failed: kill: sending signal to 784 failed: No such process"
+        ));
+    }
 
     fn proc_named(name: &str, path: &str) -> ProcessInfo {
         ProcessInfo {

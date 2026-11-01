@@ -148,14 +148,27 @@ pub fn own_pid() -> u32 {
 }
 
 fn cpu_model() -> String {
+    // x86 names the CPU in /proc/cpuinfo; arm64 only gives part numbers there, which lscpu decodes.
     host::read("/proc/cpuinfo")
         .ok()
-        .and_then(|info| {
-            info.lines()
-                .find_map(|l| l.strip_prefix("model name")?.strip_prefix(':'))
-                .map(|m| m.trim().to_string())
+        .and_then(|info| field(&info, "model name"))
+        .or_else(|| {
+            host::run(&["lscpu"])
+                .ok()
+                .and_then(|out| field(&out, "Model name"))
         })
-        .unwrap_or_default()
+        // A part lscpu doesn't know (a virtual CPU): name the architecture rather than show nothing.
+        .unwrap_or_else(|| std::env::consts::ARCH.to_string())
+}
+
+/// The value of the first `key : value` line (any spaces or tabs before the colon), unless empty or
+/// lscpu's "-" for unknown.
+fn field(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        let v = v.trim();
+        (k.trim() == key && !v.is_empty() && v != "-").then(|| v.to_string())
+    })
 }
 
 fn os_release(key: &str) -> String {
@@ -309,6 +322,29 @@ pub fn system_info() -> SystemInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cpu_names_come_from_cpuinfo_or_lscpu_lines() {
+        // /proc/cpuinfo on x86 puts a tab before the colon.
+        let cpuinfo = "processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz\n";
+        assert_eq!(
+            field(cpuinfo, "model name").as_deref(),
+            Some("Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz")
+        );
+        // arm64 /proc/cpuinfo has no model name; lscpu decodes it.
+        assert_eq!(
+            field("processor\t: 0\nCPU part\t: 0xd0c\n", "model name"),
+            None
+        );
+        let lscpu = "Architecture:             aarch64\n  Model name:             Neoverse-N1\n";
+        assert_eq!(field(lscpu, "Model name").as_deref(), Some("Neoverse-N1"));
+        assert_eq!(field("Model name:   \n", "Model name"), None);
+        // lscpu's "-" for a part it doesn't know (a virtual CPU) is no name either.
+        assert_eq!(
+            field("Model name:                              -\n", "Model name"),
+            None
+        );
+    }
 
     fn cpu(id: u32, core: (u32, u32), capacity: Option<u32>) -> Cpu {
         Cpu {
