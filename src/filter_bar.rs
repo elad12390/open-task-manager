@@ -324,7 +324,7 @@ impl OtmApp {
                     .text_color(t.text_dim)
                     .cursor_pointer()
                     .hover(|h| h.bg(with_alpha(c, 0.3)).text_color(t.text))
-                    .tooltip(crate::ui::tip("Remove this filter"))
+                    .tooltip(crate::ui::tip("Remove"))
                     .child(crate::ui::icon("x", 12., t.text_dim))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -341,14 +341,14 @@ impl OtmApp {
         match (self.page, focused) {
             (Page::Processes, true) => "Name, app, user, category… or cpu>5, mem>1g",
             (Page::Processes, false) => "Filter processes  ⌘F",
-            (_, true) => "Type to filter, or pick a value",
+            (_, true) => "Pick a value",
             (Page::Users, false) => "Filter users  ⌘F",
             (Page::Startup, false) => "Filter startup items  ⌘F",
             (Page::Services, false) => "Filter services  ⌘F",
             (Page::Connections, false) => "Filter connections  ⌘F",
             (Page::Apps, false) => "Filter apps  ⌘F",
             (Page::Disk, false) => "Filter folders  ⌘F",
-            _ => "Type to filter  ⌘F",
+            _ => "Filter  ⌘F",
         }
     }
 
@@ -449,7 +449,7 @@ impl OtmApp {
                                 .debug_selector(|| "filter-clear".into())
                                 .flex_shrink_0()
                                 .size(px(22.))
-                                .tooltip(crate::ui::tip("Clear the filter (Esc)"))
+                                .tooltip(crate::ui::tip("Clear (Esc)"))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -474,26 +474,28 @@ impl OtmApp {
                 suggestions.is_empty() && focused && self.typing_threshold(),
                 |d| {
                     d.child(
-                    div().absolute().top(px(38.)).left_0().child(
-                        deferred(anchored().child(
-                            div()
-                                .id("filter-hint")
-                                .debug_selector(|| "filter-hint".into())
-                                .occlude()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(10.))
-                                .bg(with_alpha(t.glass_strong, 0.97))
-                                .border_1()
-                                .border_color(t.highlight)
-                                .shadow_lg()
-                                .text_xs()
-                                .text_color(t.text_dim)
-                                .child("Type a number: cpu>5 (percent), mem>500 (MB) or mem>1.5g"),
-                        ))
-                        .with_priority(1),
-                    ),
-                )
+                        div().absolute().top(px(38.)).left_0().child(
+                            deferred(
+                                anchored().child(
+                                    div()
+                                        .id("filter-hint")
+                                        .debug_selector(|| "filter-hint".into())
+                                        .occlude()
+                                        .px_3()
+                                        .py_2()
+                                        .rounded(px(10.))
+                                        .bg(with_alpha(t.glass_strong, 0.97))
+                                        .border_1()
+                                        .border_color(t.highlight)
+                                        .shadow_lg()
+                                        .text_xs()
+                                        .text_color(t.text_dim)
+                                        .child("Try cpu>5 or mem>1.5g"),
+                                ),
+                            )
+                            .with_priority(1),
+                        ),
+                    )
                 },
             )
             .when(!suggestions.is_empty(), |d| {

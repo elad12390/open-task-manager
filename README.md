@@ -67,7 +67,7 @@ cargo run --release              # run it
 - **Every table sorts and filters**: click any header to sort (numbers biggest first, click again to reverse);
   the filter searches every column and suggests each column's values as chips. Shortened text shows its full value on hover.
 - **App icons** next to processes and owner groups.
-- **Right-click actions**: Quit, Force Quit (asks first), Force Quit with children, Suspend/Resume, Show in Finder,
+- **Right-click actions**: Quit, Force quit (asks first), Force quit with children, Suspend/Resume, Show in Finder,
   Show Connections, Copy PID/path/info. Mass-quitting the operating system's own processes is disabled.
 - **Keyboard navigation**: ↑↓, Page Up/Down, Home/End, ← → to fold and unfold, Space to toggle, ⌥→ to open a whole branch.
   Folding a branch folds everything inside it.
@@ -77,7 +77,7 @@ cargo run --release              # run it
   memory bandwidth, uncached disk), **Flight recorder** (record, save, replay), **Settings**.
 - **Popout** always-on-top mini monitor and a full-screen **screensaver** (F12).
 - A complete macOS menu bar with an **Update** menu (every 1/2/5/10 s, pause with ⌥⌘P, update now) and
-  Quit Process (⌥⌘Q) / Force Quit Process.
+  Quit process (⌥⌘Q) / Force quit process.
 - Liquid-Glass styling that follows light/dark mode, with text size and high-contrast options.
 
 ### A real process tree

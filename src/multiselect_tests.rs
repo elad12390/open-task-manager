@@ -239,9 +239,9 @@ fn right_click_inside_selection_keeps_it_and_menu_covers_it(cx: &mut TestAppCont
             .collect()
     });
     for expected in [
-        "Quit 2 Processes",
-        "Force Quit 2 Processes…",
-        "Copy 2 Rows",
+        "Quit 2 processes",
+        "Force quit 2 processes…",
+        "Copy 2 rows",
         "Copy PIDs",
     ] {
         assert!(
@@ -284,7 +284,7 @@ fn toolbar_force_quit_asks_about_the_whole_selection(cx: &mut TestAppContext) {
     assert_eq!(
         Some(sorted(vec![pids[0], pids[2]])),
         asked.map(sorted),
-        "Force Quit asks about every selected process, and nothing is signalled before confirming"
+        "Force quit asks about every selected process, and nothing is signalled before confirming"
     );
 }
 

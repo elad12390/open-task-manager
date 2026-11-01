@@ -125,8 +125,8 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action("Hide Open Task Manager", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action("Hide others", HideOthers),
+                MenuItem::action("Show all", ShowAll),
                 MenuItem::separator(),
                 MenuItem::action("Quit Open Task Manager", Quit),
             ],
@@ -136,30 +136,30 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(
                     if s.recording {
-                        "Stop and Save Recording"
+                        "Stop and save"
                     } else {
-                        "Start Recording"
+                        "Start recording"
                     },
                     ToggleRecording,
                 ),
-                MenuItem::action("Show Recordings Folder", ShowRecordingsFolder),
+                MenuItem::action("Show recordings folder", ShowRecordingsFolder),
                 MenuItem::separator(),
-                MenuItem::action("Export Process List as CSV", ExportProcesses),
+                MenuItem::action("Export as CSV", ExportProcesses),
                 MenuItem::separator(),
-                MenuItem::action("Close Window", CloseWindow),
+                MenuItem::action("Close window", CloseWindow),
             ],
         },
         Menu {
             name: "Edit".into(),
             items: vec![
-                MenuItem::action("Copy Selected", CopySelected),
-                MenuItem::action("Select All", SelectAll),
+                MenuItem::action("Copy selected", CopySelected),
+                MenuItem::action("Select all", SelectAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Process", QuitProcess),
-                MenuItem::action("Force Quit Process…", ForceQuitProcess),
+                MenuItem::action("Quit process", QuitProcess),
+                MenuItem::action("Force quit process…", ForceQuitProcess),
                 MenuItem::separator(),
-                MenuItem::action("Find Process", Find),
-                MenuItem::action("Clear Filter", ClearFilter),
+                MenuItem::action("Find", Find),
+                MenuItem::action("Clear filter", ClearFilter),
             ],
         },
         Menu {
@@ -178,31 +178,19 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 page(Page::Recorder, Box::new(ShowRecorder)),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
-                    name: "Group Processes By".into(),
+                    name: "Group by".into(),
                     items: vec![
                         MenuItem::action(check(s.group_by == GroupBy::None, "None"), GroupNone),
+                        MenuItem::action(check(s.group_by == GroupBy::App, "Owner"), GroupOwner),
+                        MenuItem::action(check(s.group_by == GroupBy::User, "User"), GroupUser),
+                        MenuItem::action(check(s.group_by == GroupBy::Parent, "Tree"), GroupParent),
                         MenuItem::action(
-                            check(
-                                s.group_by == GroupBy::App,
-                                "Owner (app, or Operating System)",
-                            ),
-                            GroupOwner,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::User, "User Account"),
-                            GroupUser,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::Parent, "Process Tree"),
-                            GroupParent,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::Category, "Category (macOS / Apps)"),
+                            check(s.group_by == GroupBy::Category, "Category"),
                             GroupCategory,
                         ),
                     ],
                 }),
-                MenuItem::action("Choose Columns…", ToggleColumnsMenu),
+                MenuItem::action("Columns…", ToggleColumnsMenu),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
                     name: "Appearance".into(),
@@ -221,35 +209,35 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                         ),
                     ],
                 }),
-                MenuItem::action(check(s.high_contrast, "High Contrast"), ToggleHighContrast),
+                MenuItem::action(check(s.high_contrast, "High contrast"), ToggleHighContrast),
                 MenuItem::separator(),
-                MenuItem::action("Bigger Text", TextBigger),
-                MenuItem::action("Smaller Text", TextSmaller),
-                MenuItem::action("Actual Size", TextActual),
+                MenuItem::action("Bigger text", TextBigger),
+                MenuItem::action("Smaller text", TextSmaller),
+                MenuItem::action("Actual size", TextActual),
             ],
         },
         Menu {
             name: "Update".into(),
             items: vec![
                 MenuItem::action(
-                    check(s.refresh_secs == 1 && !s.paused, "Every Second"),
+                    check(s.refresh_secs == 1 && !s.paused, "Every second"),
                     Every1s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 2 && !s.paused, "Every 2 Seconds"),
+                    check(s.refresh_secs == 2 && !s.paused, "Every 2 seconds"),
                     Every2s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 5 && !s.paused, "Every 5 Seconds"),
+                    check(s.refresh_secs == 5 && !s.paused, "Every 5 seconds"),
                     Every5s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 10 && !s.paused, "Every 10 Seconds"),
+                    check(s.refresh_secs == 10 && !s.paused, "Every 10 seconds"),
                     Every10s,
                 ),
                 MenuItem::separator(),
-                MenuItem::action(check(s.paused, "Pause Updates"), TogglePause),
-                MenuItem::action("Update Now", UpdateNow),
+                MenuItem::action(check(s.paused, "Pause updates"), TogglePause),
+                MenuItem::action("Update now", UpdateNow),
             ],
         },
         Menu {
@@ -258,13 +246,13 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 MenuItem::action("Minimize", Minimize),
                 MenuItem::action("Zoom", Zoom),
                 MenuItem::separator(),
-                MenuItem::action("Show Popout", OpenPopout),
-                MenuItem::action("Start Screensaver", OpenScreensaver),
+                MenuItem::action("Show popout", OpenPopout),
+                MenuItem::action("Start screensaver", OpenScreensaver),
             ],
         },
         Menu {
             name: "Help".into(),
-            items: vec![MenuItem::action("Show Data Folder", ShowDataFolder)],
+            items: vec![MenuItem::action("Show data folder", ShowDataFolder)],
         },
     ]
 }
@@ -384,7 +372,7 @@ impl OtmApp {
         let n = rows.len();
         let notice = match row {
             crate::processes::Row::Process { info, .. } if n == 1 => {
-                format!("Copied the details of {} (PID {})", info.name, info.pid)
+                format!("Copied info for {} (PID {})", info.name, info.pid)
             }
             _ => format!("Copied {n} rows"),
         };
@@ -429,7 +417,7 @@ impl OtmApp {
             let _answer = window.prompt(
                 PromptLevel::Info,
                 "Open Task Manager",
-                Some("Version 0.1.0 · open source (Apache-2.0) · runs locally, sends nothing anywhere.\nBuilt in Rust with GPUI."),
+                Some("Version 0.1.0 · Apache-2.0\nRuns locally and sends nothing anywhere.\nBuilt with Rust and GPUI."),
                 &["OK"],
                 cx,
             );

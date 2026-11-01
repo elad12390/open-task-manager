@@ -224,7 +224,7 @@ impl Popout {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("OTM Popout".into()),
+                        title: Some("Popout".into()),
                         appears_transparent: true,
                         traffic_light_position: Some(point(px(-40.), px(-40.))),
                     }),

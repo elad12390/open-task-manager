@@ -87,7 +87,7 @@ pub fn load(path: &PathBuf) -> Result<Recording, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let rec: Recording = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     if rec.format != FORMAT {
-        return Err(format!("Unsupported format {}", rec.format));
+        return Err(format!("Unsupported recording format {}", rec.format));
     }
     Ok(rec)
 }

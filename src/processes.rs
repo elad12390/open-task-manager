@@ -1304,13 +1304,12 @@ impl OtmApp {
                     .text_color(color)
                     .child(crate::filter_bar::notice(msg, *err, color))
             }
-            None if self.filter_active() => div().text_color(t.text_dim).child(format!(
-                "{} of {count} processes match · Esc clears",
-                self.match_count
-            )),
-            None => div().text_color(t.text_dim).child(format!(
-                "{count} running · ↑↓ select · ←→ fold · drag headers to reorder"
-            )),
+            None if self.filter_active() => div()
+                .text_color(t.text_dim)
+                .child(format!("{} of {count} processes", self.match_count)),
+            None => div()
+                .text_color(t.text_dim)
+                .child(format!("{count} processes")),
         };
         div()
             .flex()
@@ -1351,10 +1350,10 @@ impl OtmApp {
                                     this.run_context_signal(pids.clone(), libc::SIGTERM, "Quit", cx)
                                 }))
                             })
-                            .tooltip(ui::tip("Ask the selected processes to quit")),
+                            .tooltip(ui::tip("Quit selected processes")),
                     )
                     .child(
-                        ui::pill(t, "force-quit", "Force Quit…", false)
+                        ui::pill(t, "force-quit", "Force quit…", false)
                             .debug_selector(|| "force-quit".into())
                             .flex_shrink_0()
                             .text_color(t.hot)
@@ -1366,7 +1365,7 @@ impl OtmApp {
                                     cx.notify();
                                 }))
                             })
-                            .tooltip(ui::tip("Stop the selected processes at once (asks first)")),
+                            .tooltip(ui::tip("Force quit selected processes")),
                     )
                     .child(
                         ui::pill_menu(t, "columns-btn", "Columns", self.column_menu)
@@ -1500,10 +1499,10 @@ impl OtmApp {
                 div()
                     .text_xs()
                     .text_color(t.text_dim)
-                    .child("Try fewer filters, or a shorter search."),
+                    .child("Try fewer filters."),
             )
             .child(
-                ui::pill(t, "empty-clear", "Clear filters", true)
+                ui::pill(t, "empty-clear", "Clear", true)
                     .debug_selector(|| "empty-clear".into())
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.clear_filter();

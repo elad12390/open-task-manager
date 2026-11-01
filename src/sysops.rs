@@ -240,7 +240,7 @@ fn valid_label(label: &str) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("Invalid service label".into())
+        Err("Invalid service name".into())
     }
 }
 
@@ -251,10 +251,10 @@ pub fn toggle_startup(file: &Path, enable: bool) -> Result<(), String> {
         && file.extension().and_then(|x| x.to_str()) == Some("plist")
         && !file.to_string_lossy().contains("..");
     if !ok {
-        return Err("Only your own launch agents in ~/Library/LaunchAgents can be changed".into());
+        return Err("Only your own startup items can be changed".into());
     }
     if !file.exists() {
-        return Err("Launch agent not found".into());
+        return Err("Startup item not found".into());
     }
     let path = file.to_string_lossy();
     run(
@@ -298,12 +298,12 @@ pub fn signal_process(pid: u32, force: bool) -> Result<(), String> {
 /// Send any signal (TERM, KILL, STOP to suspend, CONT to resume). launchd and the kernel are refused.
 pub fn send_signal(pid: u32, sig: i32) -> Result<(), String> {
     if pid <= 1 {
-        return Err("Refusing to signal launchd or the kernel".into());
+        return Err("Can't signal launchd or the kernel".into());
     }
     if unsafe { libc::kill(pid as i32, sig) } == 0 {
         Ok(())
     } else {
-        Err(format!("pid {pid}: {}", std::io::Error::last_os_error()))
+        Err(format!("PID {pid}: {}", std::io::Error::last_os_error()))
     }
 }
 
@@ -428,9 +428,7 @@ pub fn trash_app(path: &Path) -> Result<(), String> {
         || !roots.iter().any(|r| path.parent() == Some(r.as_path()))
         || s.contains("..")
     {
-        return Err(
-            "Only .app bundles inside /Applications or ~/Applications can be removed".into(),
-        );
+        return Err("Only apps in Applications can be moved to the Trash".into());
     }
     if !path.exists() {
         return Err("App not found".into());

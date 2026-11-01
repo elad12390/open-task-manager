@@ -123,7 +123,7 @@ impl OtmApp {
             Item {
                 enabled: n > 0,
                 ..item(
-                    format!("Quit {n} Processes{note}"),
+                    format!("Quit {n} processes{note}"),
                     Cmd::Signal {
                         pids: pids.clone(),
                         sig: libc::SIGTERM,
@@ -135,7 +135,7 @@ impl OtmApp {
                 danger: true,
                 enabled: n > 0,
                 ..item(
-                    format!("Force Quit {n} Processes{note}…"),
+                    format!("Force quit {n} processes{note}…"),
                     Cmd::Signal {
                         pids,
                         sig: libc::SIGKILL,
@@ -145,10 +145,10 @@ impl OtmApp {
             },
             separator(),
             item(
-                format!("Copy {rows} Rows"),
-                Cmd::Copy("the rows", self.selection_lines()),
+                format!("Copy {rows} rows"),
+                Cmd::Copy("rows", self.selection_lines()),
             ),
-            item("Copy PIDs", Cmd::Copy("the PIDs", pid_list)),
+            item("Copy PIDs", Cmd::Copy("PIDs", pid_list)),
         ]
     }
 
@@ -159,7 +159,7 @@ impl OtmApp {
         match id {
             RowId::Pid(pid) => {
                 let Some(p) = self.snapshot.processes.iter().find(|p| p.pid == *pid) else {
-                    return vec![item("Copy PID", Cmd::Copy("the PID", pid.to_string()))];
+                    return vec![item("Copy PID", Cmd::Copy("PID", pid.to_string()))];
                 };
                 let below = self.descendants_of(p.pid);
                 let mut items = vec![item(
@@ -196,7 +196,7 @@ impl OtmApp {
                 items.push(Item {
                     danger: true,
                     ..item(
-                        "Force Quit…",
+                        "Force quit…",
                         Cmd::Signal {
                             pids: vec![p.pid],
                             sig: libc::SIGKILL,
@@ -210,7 +210,7 @@ impl OtmApp {
                     items.push(Item {
                         danger: true,
                         ..item(
-                            format!("Force Quit with {} Children…", below.len()),
+                            format!("Force quit with {} children…", below.len()),
                             Cmd::Signal {
                                 pids: all,
                                 sig: libc::SIGKILL,
@@ -227,7 +227,7 @@ impl OtmApp {
                 if let Some(bundle) = bundle_of(&p.path) {
                     items.push(item("Show App in Finder", Cmd::Reveal(bundle)));
                 }
-                items.push(item("Show Connections", Cmd::Connections(p.name.clone())));
+                items.push(item("Show connections", Cmd::Connections(p.name.clone())));
                 if !p.owner_app.is_empty() && !self.chips.contains(&Chip::App(p.owner_app.clone()))
                 {
                     items.push(item(
@@ -236,15 +236,15 @@ impl OtmApp {
                     ));
                 }
                 items.push(separator());
-                items.push(item("Copy PID", Cmd::Copy("the PID", p.pid.to_string())));
+                items.push(item("Copy PID", Cmd::Copy("PID", p.pid.to_string())));
                 items.push(Item {
                     enabled: !p.path.is_empty(),
-                    ..item("Copy Path", Cmd::Copy("the path", p.path.clone()))
+                    ..item("Copy Path", Cmd::Copy("path", p.path.clone()))
                 });
                 items.push(item(
-                    "Copy Info",
+                    "Copy info",
                     Cmd::Copy(
-                        "the details",
+                        "info",
                         format!(
                             "{} (PID {})\nOwner: {}\nUser: {}\nCPU: {:.1}%\nMemory: {}\nPath: {}",
                             p.name,
@@ -287,7 +287,7 @@ impl OtmApp {
                     Item {
                         enabled: !system && n > 0,
                         ..item(
-                            format!("Quit All {n}"),
+                            format!("Quit all {n}"),
                             Cmd::Signal {
                                 pids: pids.clone(),
                                 sig: libc::SIGTERM,
@@ -299,7 +299,7 @@ impl OtmApp {
                         danger: true,
                         enabled: !system && n > 0,
                         ..item(
-                            format!("Force Quit All {n}…"),
+                            format!("Force quit all {n}…"),
                             Cmd::Signal {
                                 pids,
                                 sig: libc::SIGKILL,
@@ -313,7 +313,7 @@ impl OtmApp {
                     items.push(item("Show App in Finder", Cmd::Reveal(bundle.clone())));
                 }
                 items.push(separator());
-                items.push(item("Copy Name", Cmd::Copy("the name", label)));
+                items.push(item("Copy name", Cmd::Copy("name", label)));
                 let folded = self.folds().contains(key);
                 items.push(item(
                     if folded { "Unfold" } else { "Fold" },
@@ -331,22 +331,11 @@ impl OtmApp {
             .filter_map(|pid| self.snapshot.processes.iter().find(|p| p.pid == *pid))
             .map(|p| p.name.clone())
             .collect();
-        let (title, detail) = match names.as_slice() {
-            [one] => (
-                format!("Force quit “{one}”?"),
-                "It stops at once, and any unsaved changes are lost.".to_string(),
-            ),
-            _ => {
-                let mut shown = names.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
-                if names.len() > 4 {
-                    shown.push_str(&format!(" and {} more", names.len() - 4));
-                }
-                (
-                    format!("Force quit {} processes?", pids.len()),
-                    format!("{shown}. They stop at once, and any unsaved changes are lost."),
-                )
-            }
+        let title = match names.as_slice() {
+            [one] => format!("Force quit “{one}”?"),
+            _ => format!("Force quit {} processes?", pids.len()),
         };
+        let detail = "Unsaved changes will be lost.".to_string();
         self.confirm = Some(Confirm {
             pids,
             title,
@@ -412,7 +401,7 @@ impl OtmApp {
                             )
                         } else {
                             (
-                                format!("{verb}: {} of {n} failed ({})", errors.len(), errors[0]),
+                                format!("Couldn't finish {} of {n}: {}", errors.len(), errors[0]),
                                 true,
                             )
                         });
@@ -567,7 +556,7 @@ impl OtmApp {
                                     .cursor_pointer()
                                     .bg(gpui::rgb(0xc4001a))
                                     .text_color(gpui::white())
-                                    .child("Force Quit")
+                                    .child("Force quit")
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.confirm = None;
                                         this.run_context_signal(

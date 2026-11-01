@@ -733,7 +733,7 @@ impl OtmApp {
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.text_dim)
-                    .child("SHOW, HIDE AND ORDER COLUMNS"),
+                    .child("Columns"),
             )
             .children(
                 items
@@ -752,7 +752,7 @@ impl OtmApp {
                     .text_color(t.accent)
                     .cursor_pointer()
                     .hover(|h| h.bg(t.glass_hover))
-                    .child("Reset to default layout")
+                    .child("Reset layout")
                     .on_click(cx.listener(move |this, _, _, cx| this.reset_columns(table, cx))),
             )
     }
