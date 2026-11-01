@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org).
 
+## [0.3.0] - 2026-11-01
+
+- Linux: Open Task Manager now runs on Linux, as a Flatpak and as .deb packages for amd64 and arm64.
+- Linux processes for every user from /proc, with owner, path and disk rates. Each process belongs to its app
+  (desktop entry, Flatpak or Snap ID, systemd unit); kernel threads and system services count as Operating System.
+- Quit, Force Quit, Suspend and Resume with signals on Linux too; PID 1 and kernel threads are protected. Actions that
+  need root ask through polkit each time; the app itself never runs as root.
+- Linux startup items (XDG autostart and systemd user units), systemd services, connections, power, battery and
+  thermal zones, installed apps by source (Flatpak, Snap, deb, rpm, manual) with uninstall through the matching tool,
+  and disk space for your home folder and every mounted volume.
+- Icons from your icon theme in every table; Show in Files opens the file manager; shortcuts use Ctrl where macOS
+  uses ⌘.
+- The Flatpak reads and controls the host's processes through `flatpak-spawn --host`; it has no network access.
+- The demo mode (`otm --demo <scene>`) shows a fictional Linux PC on Linux.
+- The sidebar scrolls when the window is short, so its footer always fits.
+- Long group descriptions end in "…" instead of being cut off.
+
 ## [0.2.1]
 
 - Select anything: group rows, tree sections and processes all join the selection (⌘/Ctrl-click, Shift-click,
