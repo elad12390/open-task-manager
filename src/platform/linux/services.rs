@@ -53,19 +53,43 @@ fn service_of(unit: &HashMap<String, String>, scope: &'static str) -> Option<Ser
     })
 }
 
+/// The unit names of `systemctl list-units --plain --no-legend`: the first column of each line.
+fn unit_names(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| l.split_whitespace().find(|t| *t != "●"))
+        .filter(|name| name.ends_with(".service") && valid_label(name))
+        .map(str::to_string)
+        .collect()
+}
+
 pub fn services() -> Vec<Service> {
     let mut list = Vec::new();
     for (scope, flags) in [("System", &[][..]), ("User", &["--user"][..])] {
         let mut args = flags.to_vec();
-        args.extend(["show", "--all", "--type=service", PROPERTIES]);
-        let Ok(out) = host("systemctl", &args) else {
+        args.extend([
+            "list-units",
+            "--all",
+            "--type=service",
+            "--plain",
+            "--no-legend",
+            "--no-pager",
+        ]);
+        let Ok(names) = host("systemctl", &args).map(|out| unit_names(&out)) else {
             continue;
         };
-        list.extend(
-            parse_units(&out)
-                .iter()
-                .filter_map(|u| service_of(u, scope)),
-        );
+        // `systemctl show` without unit names describes the manager, not its units.
+        for batch in names.chunks(200) {
+            let mut args = flags.to_vec();
+            args.extend(["show", PROPERTIES]);
+            args.extend(batch.iter().map(String::as_str));
+            if let Ok(out) = host("systemctl", &args) {
+                list.extend(
+                    parse_units(&out)
+                        .iter()
+                        .filter_map(|u| service_of(u, scope)),
+                );
+            }
+        }
     }
     list
 }
@@ -104,6 +128,19 @@ mod tests {
     use super::*;
 
     const SHOW: &str = "Id=cron.service\nLoadState=loaded\nMainPID=812\nExecMainStatus=0\nExecStart={ path=/usr/sbin/cron ; argv[]=/usr/sbin/cron -f ; }\n\nId=bad.service\nLoadState=not-found\nMainPID=0\n\nId=oneshot.service\nLoadState=loaded\nMainPID=0\nExecMainStatus=3\nExecStart={ path=/bin/false ; argv[]=/bin/false ; }\n";
+
+    #[test]
+    fn list_units_lines_become_unit_names() {
+        let out = "cron.service   loaded active   running Regular background program processing daemon\n\
+                   otm-selftest.service loaded inactive dead otm-selftest.service\n\
+                   ● bad.service  not-found inactive dead bad.service\n\
+                   dev-sda.device loaded active plugged /dev/sda\n";
+        assert_eq!(
+            unit_names(out),
+            ["cron.service", "otm-selftest.service", "bad.service"],
+            "every listed .service (a failed unit's bullet skipped), no other unit types"
+        );
+    }
 
     #[test]
     fn show_blocks_become_services() {

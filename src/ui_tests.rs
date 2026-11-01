@@ -442,11 +442,19 @@ fn folding_folds_the_whole_batch(cx: &mut TestAppContext) {
         cx.notify();
     });
     pick_group(cx, "group-Parent");
-    // (rows shown, max depth shown, branches shown folded, branches shown unfolded)
+    // (rows shown, max depth shown, branches shown folded, branches shown unfolded), counted over launchd's
+    // block only: other top-level processes come and go on a live Mac.
     let shape = |cx: &mut VisualTestContext| {
         view.read_with(cx, |app, _| {
             let mut out = (0, 0, 0, 0);
-            for r in app.rows.iter() {
+            let block = app
+                .rows
+                .iter()
+                .skip_while(|r| !matches!(r, Row::Process { info, .. } if info.pid == 1))
+                .enumerate()
+                .take_while(|(i, r)| *i == 0 || r.depth() > 0)
+                .map(|(_, r)| r);
+            for r in block {
                 // Groups (sections, owner and subsystem nodes) are tree nodes too.
                 let (depth, foldable, collapsed) = match r {
                     Row::Process {
