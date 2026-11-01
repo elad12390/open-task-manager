@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 use gpui::{
-    App, ClipboardItem, Context, Div, KeyBinding, Menu, MenuItem, PromptLevel, Stateful,
-    SystemMenuType, actions, prelude::*,
+    App, ClipboardItem, Context, Div, KeyBinding, Menu, MenuItem, PromptLevel, SharedString,
+    Stateful, SystemMenuType, actions, prelude::*,
 };
 
 use crate::{
@@ -257,6 +257,38 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
     ]
 }
 
+/// Every action of the menu bar as a flat list (labelled "Menu › Item"), for platforms that draw
+/// the menus inside the window. The app-hiding actions are left out: they only exist on macOS.
+pub fn action_list(s: &MenuState) -> Vec<(SharedString, Box<dyn gpui::Action>)> {
+    fn collect(
+        prefix: &str,
+        items: Vec<MenuItem>,
+        out: &mut Vec<(SharedString, Box<dyn gpui::Action>)>,
+    ) {
+        for item in items {
+            match item {
+                MenuItem::Action { name, action, .. } => {
+                    if !matches!(
+                        action.name(),
+                        "otm::Hide" | "otm::HideOthers" | "otm::ShowAll"
+                    ) {
+                        out.push((format!("{prefix}{name}").into(), action));
+                    }
+                }
+                MenuItem::Submenu(menu) => {
+                    collect(&format!("{prefix}{} › ", menu.name), menu.items, out);
+                }
+                MenuItem::Separator | MenuItem::SystemMenu(_) => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for menu in build(s) {
+        collect(&format!("{} › ", menu.name), menu.items, &mut out);
+    }
+    out
+}
+
 impl OtmApp {
     /// Rebuild the menu bar when anything it shows (✓ marks, Start/Stop Recording) changed.
     pub fn sync_menus(&mut self, cx: &mut Context<Self>) {
@@ -340,7 +372,7 @@ impl OtmApp {
             .join(format!("processes-{}.csv", sysops::now_secs()));
         self.notice = Some(match std::fs::write(&path, out) {
             Ok(()) => {
-                sysops::reveal_in_finder(&path.to_string_lossy());
+                sysops::reveal(&path.to_string_lossy());
                 (
                     format!(
                         "Exported {} {} to {}",
@@ -425,7 +457,7 @@ impl OtmApp {
         .on_action(cx.listener(|this, _: &ToggleRecording, _, cx| this.toggle_recording(cx)))
         .on_action(cx.listener(|_, _: &ShowRecordingsFolder, _, _| {
             let _ = std::fs::create_dir_all(recorder::dir());
-            let _ = std::process::Command::new("open").arg(recorder::dir()).spawn();
+            crate::platform::open_path(&recorder::dir());
         }))
         .on_action(cx.listener(|this, _: &ExportProcesses, _, cx| this.export_csv(cx)))
         .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
@@ -499,9 +531,15 @@ impl OtmApp {
         .on_action(cx.listener(|_, _: &OpenScreensaver, _, cx| Saver::open(cx.entity(), cx)))
         .on_action(cx.listener(|_, _: &ShowDataFolder, _, _| {
             let _ = std::fs::create_dir_all(sysops::data_dir());
-            let _ = std::process::Command::new("open").arg(sysops::data_dir()).spawn();
+            crate::platform::open_path(&sysops::data_dir());
         }))
     }
+}
+
+/// A shortcut in GPUI's keystroke syntax, with "cmd" replaced by this platform's modifier
+/// (⌘ on macOS, Ctrl elsewhere).
+pub(crate) fn key(spec: &str) -> String {
+    spec.replace("cmd", crate::platform::CAPS.mod_key)
 }
 
 /// App-level actions and keyboard shortcuts. View-level actions are handled in `OtmApp::render`.
@@ -511,33 +549,33 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.bind_keys([
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("cmd-h", Hide, None),
-        KeyBinding::new("alt-cmd-h", HideOthers, None),
-        KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-r", ToggleRecording, None),
-        KeyBinding::new("cmd-e", ExportProcesses, None),
-        KeyBinding::new("cmd-w", CloseWindow, None),
-        KeyBinding::new("cmd-c", CopySelected, None),
-        KeyBinding::new("cmd-a", SelectAll, None),
-        KeyBinding::new("alt-cmd-q", QuitProcess, None),
-        KeyBinding::new("cmd-f", Find, None),
-        KeyBinding::new("cmd-1", ShowOverview, None),
-        KeyBinding::new("cmd-2", ShowProcesses, None),
-        KeyBinding::new("cmd-3", ShowUsers, None),
-        KeyBinding::new("cmd-4", ShowConnections, None),
-        KeyBinding::new("cmd-5", ShowPower, None),
-        KeyBinding::new("cmd-6", ShowStartup, None),
-        KeyBinding::new("cmd-7", ShowServices, None),
-        KeyBinding::new("cmd-8", ShowApps, None),
-        KeyBinding::new("cmd-9", ShowDisk, None),
-        KeyBinding::new("cmd-=", TextBigger, None),
-        KeyBinding::new("cmd-+", TextBigger, None),
-        KeyBinding::new("cmd--", TextSmaller, None),
-        KeyBinding::new("cmd-0", TextActual, None),
-        KeyBinding::new("alt-cmd-p", TogglePause, None),
-        KeyBinding::new("cmd-u", UpdateNow, None),
-        KeyBinding::new("cmd-m", Minimize, None),
-        KeyBinding::new("shift-cmd-p", OpenPopout, None),
+        KeyBinding::new(&key("cmd-q"), Quit, None),
+        KeyBinding::new(&key("cmd-h"), Hide, None),
+        KeyBinding::new(&key("alt-cmd-h"), HideOthers, None),
+        KeyBinding::new(&key("cmd-,"), OpenSettings, None),
+        KeyBinding::new(&key("cmd-r"), ToggleRecording, None),
+        KeyBinding::new(&key("cmd-e"), ExportProcesses, None),
+        KeyBinding::new(&key("cmd-w"), CloseWindow, None),
+        KeyBinding::new(&key("cmd-c"), CopySelected, None),
+        KeyBinding::new(&key("cmd-a"), SelectAll, None),
+        KeyBinding::new(&key("alt-cmd-q"), QuitProcess, None),
+        KeyBinding::new(&key("cmd-f"), Find, None),
+        KeyBinding::new(&key("cmd-1"), ShowOverview, None),
+        KeyBinding::new(&key("cmd-2"), ShowProcesses, None),
+        KeyBinding::new(&key("cmd-3"), ShowUsers, None),
+        KeyBinding::new(&key("cmd-4"), ShowConnections, None),
+        KeyBinding::new(&key("cmd-5"), ShowPower, None),
+        KeyBinding::new(&key("cmd-6"), ShowStartup, None),
+        KeyBinding::new(&key("cmd-7"), ShowServices, None),
+        KeyBinding::new(&key("cmd-8"), ShowApps, None),
+        KeyBinding::new(&key("cmd-9"), ShowDisk, None),
+        KeyBinding::new(&key("cmd-="), TextBigger, None),
+        KeyBinding::new(&key("cmd-+"), TextBigger, None),
+        KeyBinding::new(&key("cmd--"), TextSmaller, None),
+        KeyBinding::new(&key("cmd-0"), TextActual, None),
+        KeyBinding::new(&key("alt-cmd-p"), TogglePause, None),
+        KeyBinding::new(&key("cmd-u"), UpdateNow, None),
+        KeyBinding::new(&key("cmd-m"), Minimize, None),
+        KeyBinding::new(&key("shift-cmd-p"), OpenPopout, None),
     ]);
 }

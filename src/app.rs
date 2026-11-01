@@ -216,6 +216,8 @@ pub struct OtmApp {
     pub paused: bool,
     pub update_now: bool,
     pub menu_state: Option<crate::menus::MenuState>,
+    /// The in-window menu (on platforms without a global menu bar) is open.
+    pub app_menu_open: bool,
     /// App bundle path -> cached PNG icon.
     pub icons: std::collections::HashMap<String, PathBuf>,
     /// Icon keys that have been asked for (rendered or failed), so each is rendered once.
@@ -248,7 +250,7 @@ impl OtmApp {
         }
         for p in &self.snapshot.processes {
             if p.owner_app != crate::categories::OS_OWNER
-                && let Some(b) = crate::icons::bundle_of(&p.path)
+                && let Some(b) = crate::platform::icons::bundle_of(&p.path)
             {
                 self.owner_bundles.entry(p.owner_app.clone()).or_insert(b);
             }
@@ -428,6 +430,7 @@ impl OtmApp {
             paused: false,
             update_now: false,
             menu_state: None,
+            app_menu_open: false,
             icons: Default::default(),
             icons_requested: HashSet::new(),
             icons_rendering: false,
@@ -749,6 +752,50 @@ impl OtmApp {
         }
     }
 
+    /// The menu bar's actions as a button and a list, for platforms without a global menu bar.
+    fn app_menu(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let actions = crate::menus::action_list(&crate::menus::MenuState::of(self));
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                ui::pill(t, "app-menu", "⋯  Menu", self.app_menu_open)
+                    .debug_selector(|| "app-menu".into())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.app_menu_open = !this.app_menu_open;
+                        cx.notify();
+                    })),
+            )
+            .when(self.app_menu_open, |d| {
+                d.child(
+                    ui::glass(t)
+                        .id("app-menu-list")
+                        .rounded(px(10.))
+                        .p_1()
+                        .max_h(px(320.))
+                        .overflow_y_scroll()
+                        .children(actions.into_iter().enumerate().map(|(i, (label, action))| {
+                            div()
+                                .id(i)
+                                .px_2()
+                                .py_1()
+                                .rounded(px(6.))
+                                .text_sm()
+                                .text_color(t.text)
+                                .cursor_pointer()
+                                .hover(|h| h.bg(t.glass_hover))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.app_menu_open = false;
+                                    window.dispatch_action(action.boxed_clone(), cx);
+                                    cx.notify();
+                                }))
+                        })),
+                )
+            })
+    }
+
     fn sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let s = &self.snapshot;
         let mem = if s.memory_total == 0 {
@@ -868,6 +915,9 @@ impl OtmApp {
                     })
                     .child(mini_meter(t, "CPU", s.cpu))
                     .child(mini_meter(t, "Memory", mem))
+                    .when(crate::platform::CAPS.in_window_menu, |d| {
+                        d.child(self.app_menu(t, cx))
+                    })
                     .child(
                         div()
                             .flex()

@@ -1,18 +1,24 @@
-//! macOS system queries and guarded actions (launchd, lsof, Finder, pmset, du, benchmarks).
+//! System queries and guarded actions shared by every platform: the data folder, disk-scan history,
+//! benchmarks and signals. The OS-specific queries live in `crate::platform` and are re-exported
+//! here, so callers keep using `sysops::…`.
 
 use std::{
-    collections::{HashMap, HashSet},
     fs,
     io::{Read, Write},
-    os::unix::io::AsRawFd,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 
-fn home() -> PathBuf {
+use crate::platform::{bypass_cache, data_root};
+pub use crate::platform::{
+    connections, control_service, installed_apps, power, process_state, reveal, services,
+    startup_items, system_info, toggle_startup, trash_app,
+};
+
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default()
@@ -22,10 +28,10 @@ fn home() -> PathBuf {
 pub fn data_dir() -> PathBuf {
     std::env::var_os("OTM_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("Library/Application Support/OpenTaskManager"))
+        .unwrap_or_else(data_root)
 }
 
-fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(cmd)
         .args(args)
         .output()
@@ -40,10 +46,6 @@ fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
             err
         })
     }
-}
-
-fn uid() -> u32 {
-    unsafe { libc::getuid() }
 }
 
 // ---------- system info ----------
@@ -62,43 +64,7 @@ pub struct SystemInfo {
     pub booted: u64,
 }
 
-fn sysctl(key: &str) -> String {
-    run("sysctl", &["-n", key])
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
-}
-
-pub fn system_info() -> SystemInfo {
-    let booted = sysctl("kern.boottime")
-        .split("sec = ")
-        .nth(1)
-        .and_then(|s| s.split(',').next())
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
-    SystemInfo {
-        model: sysctl("hw.model"),
-        chip: sysctl("machdep.cpu.brand_string"),
-        os: format!(
-            "{} {}",
-            run("sw_vers", &["-productName"]).unwrap_or_default().trim(),
-            run("sw_vers", &["-productVersion"])
-                .unwrap_or_default()
-                .trim()
-        ),
-        build: run("sw_vers", &["-buildVersion"])
-            .unwrap_or_default()
-            .trim()
-            .to_string(),
-        arch: run("uname", &["-m"]).unwrap_or_default().trim().to_string(),
-        memory: sysctl("hw.memsize").parse().unwrap_or(0),
-        physical_cores: sysctl("hw.physicalcpu").parse().unwrap_or(0),
-        performance_cores: sysctl("hw.perflevel0.physicalcpu").parse().unwrap_or(0),
-        efficiency_cores: sysctl("hw.perflevel1.physicalcpu").parse().unwrap_or(0),
-        booted,
-    }
-}
-
-// ---------- launchd ----------
+// ---------- services and startup items ----------
 
 #[derive(Clone, Debug)]
 pub struct Service {
@@ -107,45 +73,6 @@ pub struct Service {
     pub status: i32,
     /// The program of a service that is not running, from its launch agent or daemon plist.
     pub program: Option<PathBuf>,
-}
-
-fn launchctl_services() -> Vec<Service> {
-    let out = run("launchctl", &["list"]).unwrap_or_default();
-    out.lines()
-        .skip(1)
-        .filter_map(|l| {
-            let mut f = l.split('\t');
-            let pid = f.next()?;
-            let status = f.next()?;
-            let label = f.next()?.trim().to_string();
-            Some(Service {
-                label,
-                pid: pid.parse().ok(),
-                status: status.parse().unwrap_or(0),
-                program: None,
-            })
-        })
-        .collect()
-}
-
-pub fn services() -> Vec<Service> {
-    let mut list = launchctl_services();
-    let plists: HashMap<String, PathBuf> = launch_dirs()
-        .iter()
-        .flat_map(|(dir, _)| plist_paths(dir))
-        .map(|file| {
-            let label = file
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            (label, file)
-        })
-        .collect();
-    for s in list.iter_mut().filter(|s| s.pid.is_none()) {
-        s.program = plists.get(&s.label).and_then(|file| plist_program(file));
-    }
-    list
 }
 
 #[derive(Clone, Debug)]
@@ -159,134 +86,10 @@ pub struct StartupItem {
     pub program: Option<PathBuf>,
 }
 
-pub fn user_agents_dir() -> PathBuf {
-    home().join("Library/LaunchAgents")
-}
-
-fn launch_dirs() -> [(PathBuf, &'static str); 3] {
-    [
-        (user_agents_dir(), "User agent"),
-        (PathBuf::from("/Library/LaunchAgents"), "System agent"),
-        (PathBuf::from("/Library/LaunchDaemons"), "System daemon"),
-    ]
-}
-
-fn plist_paths(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("plist"))
-        .collect()
-}
-
-/// The program a launch agent or daemon runs: its `Program`, else the first of its `ProgramArguments`.
-pub fn plist_program(file: &Path) -> Option<PathBuf> {
-    let json = run(
-        "plutil",
-        &["-convert", "json", "-o", "-", &file.to_string_lossy()],
-    )
-    .ok()?;
-    let plist: serde_json::Value = serde_json::from_str(&json).ok()?;
-    let program = plist
-        .get("Program")
-        .and_then(|p| p.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            plist
-                .get("ProgramArguments")?
-                .get(0)?
-                .as_str()
-                .map(str::to_string)
-        })?;
-    program.starts_with('/').then(|| PathBuf::from(program))
-}
-
-pub fn startup_items() -> Vec<StartupItem> {
-    let loaded: HashSet<String> = launchctl_services().into_iter().map(|s| s.label).collect();
-    let mut items = Vec::new();
-    for (dir, scope) in launch_dirs() {
-        for path in plist_paths(&dir) {
-            let label = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            items.push(StartupItem {
-                loaded: loaded.contains(&label),
-                editable: scope == "User agent",
-                label,
-                scope,
-                program: plist_program(&path),
-                file: path,
-            });
-        }
-    }
-    items.sort_by(|a, b| {
-        a.scope
-            .cmp(b.scope)
-            .then(a.label.to_lowercase().cmp(&b.label.to_lowercase()))
-    });
-    items
-}
-
-fn valid_label(label: &str) -> Result<(), String> {
-    if !label.is_empty()
-        && label
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
-    {
-        Ok(())
-    } else {
-        Err("Invalid service name".into())
-    }
-}
-
-/// Load or unload one of the user's own launch agents. System agents are refused.
-pub fn toggle_startup(file: &Path, enable: bool) -> Result<(), String> {
-    let dir = user_agents_dir();
-    let ok = file.parent() == Some(dir.as_path())
-        && file.extension().and_then(|x| x.to_str()) == Some("plist")
-        && !file.to_string_lossy().contains("..");
-    if !ok {
-        return Err("Only your own startup items can be changed".into());
-    }
-    if !file.exists() {
-        return Err("Startup item not found".into());
-    }
-    let path = file.to_string_lossy();
-    run(
-        "launchctl",
-        &[if enable { "load" } else { "unload" }, "-w", &path],
-    )
-    .map(|_| ())
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ServiceAction {
     Restart,
     Stop,
-}
-
-pub fn control_service(label: &str, action: ServiceAction) -> Result<(), String> {
-    valid_label(label)?;
-    let uid = uid();
-    let target = format!("gui/{uid}/{label}");
-    let plist = user_agents_dir().join(format!("{label}.plist"));
-    match action {
-        ServiceAction::Restart if plist.exists() => {
-            let _ = run("launchctl", &["bootout", &target]);
-            run(
-                "launchctl",
-                &["bootstrap", &format!("gui/{uid}"), &plist.to_string_lossy()],
-            )?;
-            run("launchctl", &["kickstart", &target]).map(|_| ())
-        }
-        ServiceAction::Restart => run("launchctl", &["kickstart", "-k", &target]).map(|_| ()),
-        ServiceAction::Stop => run("launchctl", &["kill", "TERM", &target]).map(|_| ()),
-    }
 }
 
 // ---------- processes ----------
@@ -307,13 +110,6 @@ pub fn send_signal(pid: u32, sig: i32) -> Result<(), String> {
     }
 }
 
-/// `ps` state letters for a process ("S", "R", "T" = stopped…), or None if it is gone.
-pub fn process_state(pid: u32) -> Option<String> {
-    let out = run("ps", &["-o", "stat=", "-p", &pid.to_string()]).ok()?;
-    let s = out.trim().to_string();
-    (!s.is_empty()).then_some(s)
-}
-
 // ---------- network ----------
 
 #[derive(Clone, Debug)]
@@ -323,40 +119,6 @@ pub struct Connection {
     pub proto: String,
     pub endpoint: String,
     pub state: String,
-}
-
-pub fn connections() -> Vec<Connection> {
-    let out = run("lsof", &["-nP", "-i", "-F", "pcPn"]).unwrap_or_default();
-    let (mut pid, mut cmd, mut proto) = (0, String::new(), String::new());
-    let mut rows = Vec::new();
-    for line in out.lines() {
-        let Some(tag) = line.chars().next() else {
-            continue;
-        };
-        let val = &line[1..];
-        match tag {
-            'p' => pid = val.parse().unwrap_or(0),
-            'c' => cmd = val.to_string(),
-            'P' => proto = val.to_string(),
-            'n' => {
-                let (endpoint, state) = match val.rfind(" (") {
-                    Some(i) if val.ends_with(')') => {
-                        (val[..i].to_string(), val[i + 2..val.len() - 1].to_string())
-                    }
-                    _ => (val.to_string(), String::new()),
-                };
-                rows.push(Connection {
-                    pid,
-                    process: cmd.clone(),
-                    proto: proto.clone(),
-                    endpoint,
-                    state,
-                });
-            }
-            _ => {}
-        }
-    }
-    rows
 }
 
 // ---------- installed apps ----------
@@ -369,45 +131,6 @@ pub struct InstalledApp {
     pub bytes: Option<u64>,
 }
 
-fn plist_string(info: &Path, key: &str) -> Option<String> {
-    run(
-        "plutil",
-        &["-extract", key, "raw", "-o", "-", &info.to_string_lossy()],
-    )
-    .ok()
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-}
-
-pub fn installed_apps() -> Vec<InstalledApp> {
-    let mut apps = Vec::new();
-    for dir in [PathBuf::from("/Applications"), home().join("Applications")] {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("app") {
-                continue;
-            }
-            let info = path.join("Contents/Info.plist");
-            apps.push(InstalledApp {
-                name: path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
-                version: plist_string(&info, "CFBundleShortVersionString")
-                    .unwrap_or_else(|| "—".into()),
-                path,
-                bytes: None,
-            });
-        }
-    }
-    apps.sort_by_key(|a| a.name.to_lowercase());
-    apps
-}
-
 pub fn app_sizes(paths: &[PathBuf]) -> Vec<Option<u64>> {
     paths
         .iter()
@@ -418,26 +141,6 @@ pub fn app_sizes(paths: &[PathBuf]) -> Vec<Option<u64>> {
                 .map(|k| k * 1024)
         })
         .collect()
-}
-
-/// Move an app bundle to the Trash through Finder. Limited to /Applications and ~/Applications.
-pub fn trash_app(path: &Path) -> Result<(), String> {
-    let s = path.to_string_lossy();
-    let roots = [PathBuf::from("/Applications"), home().join("Applications")];
-    if path.extension().and_then(|x| x.to_str()) != Some("app")
-        || !roots.iter().any(|r| path.parent() == Some(r.as_path()))
-        || s.contains("..")
-    {
-        return Err("Only apps in Applications can be moved to the Trash".into());
-    }
-    if !path.exists() {
-        return Err("App not found".into());
-    }
-    let script = format!(
-        "tell application \"Finder\" to delete (POSIX file \"{}\" as alias)",
-        s.replace('\\', "\\\\").replace('"', "\\\"")
-    );
-    run("osascript", &["-e", &script]).map(|_| ())
 }
 
 // ---------- power ----------
@@ -455,61 +158,6 @@ pub struct Power {
     pub temperature: Option<f64>,
     pub low_power_mode: bool,
     pub thermal: String,
-}
-
-pub fn power() -> Power {
-    let batt = run("pmset", &["-g", "batt"]).unwrap_or_default();
-    let ioreg = run("ioreg", &["-rn", "AppleSmartBattery", "-w0"]).unwrap_or_default();
-    let num = |k: &str| -> Option<i64> {
-        let needle = format!("\"{k}\" = ");
-        let i = ioreg.find(&needle)? + needle.len();
-        let digits: String = ioreg[i..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '-')
-            .collect();
-        let v: i128 = digits.parse().ok()?;
-        Some(if v > 9_000_000_000_000_000_000 {
-            (v - (1i128 << 64)) as i64
-        } else {
-            v as i64
-        })
-    };
-    let voltage = num("Voltage");
-    let amperage = num("Amperage");
-    let design = num("DesignCapacity");
-    let max = num("NominalChargeCapacity").or_else(|| num("AppleRawMaxCapacity"));
-    let percent = batt
-        .split(['\t', ';'])
-        .find_map(|p| p.trim().strip_suffix('%')?.parse().ok());
-    let status = batt
-        .split(';')
-        .nth(1)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".into());
-    let pm = run("pmset", &["-g"]).unwrap_or_default();
-    let therm = run("pmset", &["-g", "therm"]).unwrap_or_default();
-    Power {
-        has_battery: batt.contains("InternalBattery"),
-        source: batt.split('\'').nth(1).unwrap_or("unknown").to_string(),
-        percent,
-        status,
-        watts: voltage.zip(amperage).map(|(v, a)| (v * a) as f64 / 1e6),
-        voltage: voltage.map(|v| v as f64 / 1000.),
-        cycles: num("CycleCount"),
-        health: design
-            .zip(max)
-            .filter(|(d, _)| *d > 0)
-            .map(|(d, m)| m as f64 / d as f64 * 100.),
-        temperature: num("Temperature").map(|t| t as f64 / 100.),
-        low_power_mode: pm
-            .lines()
-            .any(|l| l.trim_start().starts_with("lowpowermode") && l.trim_end().ends_with('1')),
-        thermal: if therm.contains("No thermal warning level has been recorded") {
-            "Nominal".into()
-        } else {
-            therm.lines().last().unwrap_or("unknown").trim().to_string()
-        },
-    }
 }
 
 // ---------- disk space ----------
@@ -591,10 +239,6 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn reveal_in_finder(path: &str) {
-    let _ = Command::new("open").args(["-R", path]).spawn();
-}
-
 // ---------- benchmarks ----------
 
 #[derive(Clone, Debug, Default)]
@@ -646,7 +290,7 @@ fn memory_bandwidth() -> f64 {
     (len * 8 * 2 * 4) as f64 / start.elapsed().as_secs_f64() / 1e9
 }
 
-/// Sequential 512 MB write and read with the unified buffer cache bypassed (F_NOCACHE).
+/// Sequential 512 MB write and read with the page cache bypassed (see `platform::bypass_cache`).
 fn disk_speed() -> (f64, f64) {
     const SIZE: usize = 512 * 1024 * 1024;
     const CHUNK: usize = 8 * 1024 * 1024;
@@ -654,7 +298,7 @@ fn disk_speed() -> (f64, f64) {
     let block = vec![0xA5u8; CHUNK];
     let write = (|| -> std::io::Result<f64> {
         let mut f = fs::File::create(&path)?;
-        unsafe { libc::fcntl(f.as_raw_fd(), libc::F_NOCACHE, 1) };
+        bypass_cache(&f);
         let start = Instant::now();
         for _ in 0..SIZE / CHUNK {
             f.write_all(&block)?;
@@ -664,7 +308,7 @@ fn disk_speed() -> (f64, f64) {
     })();
     let read = (|| -> std::io::Result<f64> {
         let mut f = fs::File::open(&path)?;
-        unsafe { libc::fcntl(f.as_raw_fd(), libc::F_NOCACHE, 1) };
+        bypass_cache(&f);
         let mut buf = vec![0u8; CHUNK];
         let start = Instant::now();
         while f.read(&mut buf)? > 0 {}

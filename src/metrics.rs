@@ -90,12 +90,14 @@ pub struct Sampler {
     last_sample: Option<std::time::Instant>,
 }
 
-struct PsRow {
-    ppid: u32,
-    user: String,
-    cpu: f32,
-    memory: u64,
-    path: String,
+/// Owner, parent, memory and path of a process as the platform reports them, for the fields
+/// sysinfo cannot read (other users' processes).
+pub struct PsRow {
+    pub ppid: u32,
+    pub user: String,
+    pub cpu: f32,
+    pub memory: u64,
+    pub path: String,
 }
 
 impl Sampler {
@@ -117,43 +119,10 @@ impl Sampler {
         }
     }
 
-    /// Owner, CPU and resident memory for every process from `ps`, which (unlike sysinfo's
-    /// task APIs) can read processes owned by other users without root.
+    /// Owner, parent, memory and path for every process from the platform's process table, which
+    /// (unlike sysinfo's task APIs) can read processes owned by other users without root.
     fn refresh_ps(&mut self) {
-        let out = std::process::Command::new("ps")
-            .args(["-axo", "pid=,ppid=,user=,pcpu=,rss=,comm="])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default();
-        self.ps = out
-            .lines()
-            .filter_map(|l| {
-                // Five space-separated fields, then the executable path, which may contain spaces.
-                let mut rest = l.trim_start();
-                let mut field = || {
-                    let (f, r) = rest.split_once(char::is_whitespace)?;
-                    rest = r.trim_start();
-                    Some(f)
-                };
-                let pid = field()?.parse().ok()?;
-                let ppid = field()?.parse().ok()?;
-                let user = field()?.to_string();
-                let cpu = field()?.parse().ok()?;
-                let rss: u64 = field()?.parse().ok()?;
-                // Login shells are listed as "-/bin/zsh".
-                let path = rest.trim_end().trim_start_matches('-').to_string();
-                Some((
-                    pid,
-                    PsRow {
-                        ppid,
-                        user,
-                        cpu,
-                        memory: rss * 1024,
-                        path,
-                    },
-                ))
-            })
-            .collect();
+        self.ps = crate::platform::process_table();
     }
 
     fn ps_owner(&self, pid: u32) -> String {

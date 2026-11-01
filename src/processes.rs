@@ -601,9 +601,13 @@ fn category_rows(
     collapsed: &HashSet<String>,
     rows: &mut Vec<Row>,
 ) {
-    use crate::categories::{MACOS, TOPS, categorize};
+    use crate::categories::{SYSTEM_GROUP, TOPS, categorize};
     let cat = categorize(processes);
-    let section_of = |p: &ProcessInfo| cat.get(&p.pid).cloned().unwrap_or((MACOS, String::new()));
+    let section_of = |p: &ProcessInfo| {
+        cat.get(&p.pid)
+            .cloned()
+            .unwrap_or((SYSTEM_GROUP, String::new()))
+    };
     // top -> section -> processes (everything, for sums; shown, for rows)
     let mut all: HashMap<&'static str, HashMap<String, Vec<ProcessInfo>>> = HashMap::new();
     for p in processes {
@@ -631,7 +635,7 @@ fn category_rows(
         )
     };
     let (sort, desc) = (layout.sort, layout.descending);
-    for top in TOPS {
+    for &top in TOPS {
         let Some(sections) = shown.remove(top) else {
             continue;
         };
@@ -641,7 +645,7 @@ fn category_rows(
         let top_collapsed = collapsed.contains(&key);
         rows.push(Row::Group {
             depth: 0,
-            note: (top == MACOS).then_some("built into the system"),
+            note: (top == SYSTEM_GROUP).then_some("built into the system"),
             label: top.to_string(),
             count: everything.len(),
             cpu,
@@ -1058,12 +1062,12 @@ impl OtmApp {
         }
     }
 
-    /// Whether a process is one of macOS's own, which a selected macOS group or section never
-    /// quits (the same rule as the group menu).
+    /// Whether a process is one of the operating system's own, which a selected system group or
+    /// section never quits (the same rule as the group menu).
     fn is_system_group(&self, key: &str) -> bool {
         key == crate::categories::OS_OWNER
             || key.starts_with("split:0")
-            || key.starts_with("cat:macOS")
+            || key.starts_with(&format!("cat:{}", crate::categories::SYSTEM_GROUP))
     }
 
     /// The processes a selection acts on: each selected process, and every process inside a selected

@@ -152,6 +152,7 @@ fn column_gestures(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn process_tree_twisty(cx: &mut TestAppContext) {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("otm-tree-test-{}", std::process::id()));
@@ -227,6 +228,7 @@ fn process_tree_twisty(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn keyboard_navigation(cx: &mut TestAppContext) {
     use crate::processes::{Row, RowId};
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -416,6 +418,7 @@ fn keyboard_navigation(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn folding_folds_the_whole_batch(cx: &mut TestAppContext) {
     use crate::processes::{Row, branch_descendants, node_key};
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -525,6 +528,7 @@ fn folding_folds_the_whole_batch(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn category_grouping(cx: &mut TestAppContext) {
     use crate::processes::Row;
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -584,6 +588,7 @@ fn category_grouping(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn folding_a_group_folds_everything_inside(cx: &mut TestAppContext) {
     use crate::processes::{Row, RowId};
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -681,6 +686,7 @@ fn folding_a_group_folds_everything_inside(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn table_scrolls_sideways_to_every_column(cx: &mut TestAppContext) {
     use gpui::{ScrollDelta, ScrollWheelEvent};
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -779,6 +785,7 @@ fn table_scrolls_sideways_to_every_column(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     use crate::processes::RowId;
     use std::time::Duration;
@@ -1049,6 +1056,7 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
 /// The filter field: a caret when focused, suggestions while typing, chips from Enter, ⌫ and Esc,
 /// and a toolbar that fits the narrowest window.
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn filter_field_chips_and_toolbar(cx: &mut TestAppContext) {
     use crate::filter::Chip;
     use crate::processes::Row;
@@ -1191,6 +1199,7 @@ fn filter_field_chips_and_toolbar(cx: &mut TestAppContext) {
 /// Every listing table sorts by clicking a header (numbers by value, biggest first; a second click
 /// reverses) and its filter searches every column.
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn listing_tables_sort_and_filter(cx: &mut TestAppContext) {
     use crate::app::Page;
     use crate::sysops::InstalledApp;

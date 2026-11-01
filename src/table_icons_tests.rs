@@ -1,20 +1,25 @@
 //! Icons in the process and listing tables: icon keys, rendering, and which icon each row carries.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::path::Path;
+use std::path::PathBuf;
 
 use gpui::TestAppContext;
 
+#[cfg(target_os = "macos")]
+use crate::icons;
 use crate::{
     app::{OtmApp, Page},
     categories::OS_OWNER,
-    icons,
     metrics::ProcessInfo,
-    sysops::{Connection, InstalledApp, plist_program},
+    sysops::{Connection, InstalledApp},
     ui_tests::ENV_LOCK,
 };
+
+#[cfg(target_os = "macos")]
+use crate::platform::plist_program;
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("otm-{name}-test-{}", std::process::id()));
@@ -38,6 +43,7 @@ fn process(pid: u32, name: &str, path: &str, owner: &str) -> ProcessInfo {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn bundleless_executable_renders_a_png_icon() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -51,6 +57,7 @@ fn bundleless_executable_renders_a_png_icon() {
     assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 32);
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn process_icon_prefers_own_bundle_then_owner_then_system_then_executable() {
     let owners = HashMap::from([("Safari".to_string(), "/Applications/Safari.app".to_string())]);
@@ -76,6 +83,7 @@ fn process_icon_prefers_own_bundle_then_owner_then_system_then_executable() {
     assert_eq!(key("ghost", "", "Nobody"), None);
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn launch_agent_program_comes_from_the_plist() {
     let dir = temp_dir("plist");
@@ -158,6 +166,7 @@ fn connection_rows_use_their_process_icon(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn user_rows_get_the_generic_user_icon(cx: &mut TestAppContext) {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use_data_dir("user-icons");

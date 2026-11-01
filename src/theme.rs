@@ -83,6 +83,16 @@ impl Theme {
             t.stroke = with_alpha(t.text, 0.45);
             t.highlight = with_alpha(t.text, 0.55);
         }
+        if !crate::platform::CAPS.glass_blur {
+            // Without a blurred window the tint would show the opaque window's own colour through
+            // it, so it is laid over a solid backdrop instead.
+            let backdrop = if dark {
+                rgba(0x1c1c1eff)
+            } else {
+                rgba(0xe6e9f0ff)
+            };
+            t.window_tint = over(backdrop, t.window_tint);
+        }
         t
     }
 

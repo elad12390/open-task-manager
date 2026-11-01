@@ -7,10 +7,10 @@ use gpui::{ClipboardItem, Context, FontWeight, div, prelude::*, px};
 
 use crate::{
     app::{OtmApp, Page},
-    categories::OS_OWNER,
+    categories::{OS_OWNER, SYSTEM_GROUP},
     filter::Chip,
-    icons::bundle_of,
     metrics::fmt_bytes,
+    platform::{CAPS, icons::bundle_of},
     processes::{RowId, node_key},
     sysops,
     theme::Theme,
@@ -232,10 +232,10 @@ impl OtmApp {
                 items.push(separator());
                 items.push(Item {
                     enabled: !p.path.is_empty(),
-                    ..item("Show in Finder", Cmd::Reveal(p.path.clone()))
+                    ..item(CAPS.reveal_label, Cmd::Reveal(p.path.clone()))
                 });
                 if let Some(bundle) = bundle_of(&p.path) {
-                    items.push(item("Show App in Finder", Cmd::Reveal(bundle)));
+                    items.push(item(CAPS.reveal_app_label, Cmd::Reveal(bundle)));
                 }
                 items.push(item("Show Connections", Cmd::Connections(p.name.clone())));
                 if !p.owner_app.is_empty() && !self.chips.contains(&Chip::App(p.owner_app.clone()))
@@ -289,9 +289,10 @@ impl OtmApp {
                     })
                     .unwrap_or_default();
                 let pids = self.group_pids(key);
-                // Mass-killing macOS's own processes would take the system down with them.
-                let system =
-                    label == OS_OWNER || key.starts_with("split:0") || key.starts_with("cat:macOS");
+                // Mass-killing the operating system's own processes would take the system down with them.
+                let system = label == OS_OWNER
+                    || key.starts_with("split:0")
+                    || key.starts_with(&format!("cat:{SYSTEM_GROUP}"));
                 let n = pids.len();
                 let mut items = vec![
                     Item {
@@ -320,7 +321,7 @@ impl OtmApp {
                 ];
                 if let Some(bundle) = self.owner_bundles.get(&label) {
                     items.push(separator());
-                    items.push(item("Show App in Finder", Cmd::Reveal(bundle.clone())));
+                    items.push(item(CAPS.reveal_app_label, Cmd::Reveal(bundle.clone())));
                 }
                 items.push(separator());
                 items.push(item("Copy Name", Cmd::Copy("name", label)));
@@ -362,7 +363,7 @@ impl OtmApp {
         match cmd {
             Cmd::Signal { pids, sig, .. } if sig == libc::SIGKILL => self.ask_force_quit(pids),
             Cmd::Signal { pids, sig, verb } => self.run_context_signal(pids, sig, verb, cx),
-            Cmd::Reveal(path) => sysops::reveal_in_finder(&path),
+            Cmd::Reveal(path) => sysops::reveal(&path),
             Cmd::Connections(name) => {
                 self.open_page(Page::Connections, cx);
                 self.query = name;
