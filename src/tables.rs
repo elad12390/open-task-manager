@@ -784,14 +784,15 @@ impl OtmApp {
                     }),
                 ),
             )
+            // Drawn last, so it sits above the table and its clicks never reach rows beneath it.
             .when(open, |d| {
-                d.child(
+                d.child(gpui::deferred(
                     self.columns_menu(t, table, cx)
                         .absolute()
                         .top_full()
                         .right_0()
                         .mt_1(),
-                )
+                ))
             })
     }
 
