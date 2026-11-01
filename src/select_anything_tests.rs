@@ -181,7 +181,7 @@ fn actions_use_the_union_of_processes_and_skip_macos_sections(cx: &mut TestAppCo
     assert!(
         labels
             .iter()
-            .any(|l| l == "Quit 1 Processes · 2 macOS skipped"),
+            .any(|l| l == "Quit 1 Process · 2 macOS skipped"),
         "the confirmation says what was skipped, got {labels:?}"
     );
     assert!(labels.iter().any(|l| l == "Copy 2 Rows"), "got {labels:?}");

@@ -136,7 +136,7 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(
                     if s.recording {
-                        "Stop and Save Recording"
+                        "Stop and Save"
                     } else {
                         "Start Recording"
                     },
@@ -144,7 +144,7 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 ),
                 MenuItem::action("Show Recordings Folder", ShowRecordingsFolder),
                 MenuItem::separator(),
-                MenuItem::action("Export Process List as CSV", ExportProcesses),
+                MenuItem::action("Export as CSV", ExportProcesses),
                 MenuItem::separator(),
                 MenuItem::action("Close Window", CloseWindow),
             ],
@@ -158,7 +158,7 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 MenuItem::action("Quit Process", QuitProcess),
                 MenuItem::action("Force Quit Process…", ForceQuitProcess),
                 MenuItem::separator(),
-                MenuItem::action("Find Process", Find),
+                MenuItem::action("Find", Find),
                 MenuItem::action("Clear Filter", ClearFilter),
             ],
         },
@@ -178,31 +178,19 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 page(Page::Recorder, Box::new(ShowRecorder)),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
-                    name: "Group Processes By".into(),
+                    name: "Group By".into(),
                     items: vec![
                         MenuItem::action(check(s.group_by == GroupBy::None, "None"), GroupNone),
+                        MenuItem::action(check(s.group_by == GroupBy::App, "Owner"), GroupOwner),
+                        MenuItem::action(check(s.group_by == GroupBy::User, "User"), GroupUser),
+                        MenuItem::action(check(s.group_by == GroupBy::Parent, "Tree"), GroupParent),
                         MenuItem::action(
-                            check(
-                                s.group_by == GroupBy::App,
-                                "Owner (app, or Operating System)",
-                            ),
-                            GroupOwner,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::User, "User Account"),
-                            GroupUser,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::Parent, "Process Tree"),
-                            GroupParent,
-                        ),
-                        MenuItem::action(
-                            check(s.group_by == GroupBy::Category, "Category (macOS / Apps)"),
+                            check(s.group_by == GroupBy::Category, "Category"),
                             GroupCategory,
                         ),
                     ],
                 }),
-                MenuItem::action("Choose Columns…", ToggleColumnsMenu),
+                MenuItem::action("Columns…", ToggleColumnsMenu),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
                     name: "Appearance".into(),
@@ -384,9 +372,9 @@ impl OtmApp {
         let n = rows.len();
         let notice = match row {
             crate::processes::Row::Process { info, .. } if n == 1 => {
-                format!("Copied the details of {} (PID {})", info.name, info.pid)
+                format!("Copied info for {} (PID {})", info.name, info.pid)
             }
-            _ => format!("Copied {n} rows"),
+            _ => format!("Copied {n} {}", crate::ui::plural(n, "row", "rows")),
         };
         let text = self.selection_lines();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -429,7 +417,7 @@ impl OtmApp {
             let _answer = window.prompt(
                 PromptLevel::Info,
                 "Open Task Manager",
-                Some("Version 0.1.0 · open source (Apache-2.0) · runs locally, sends nothing anywhere.\nBuilt in Rust with GPUI."),
+                Some("Version 0.1.0 · Apache-2.0\nRuns locally and sends nothing anywhere.\nBuilt with Rust and GPUI."),
                 &["OK"],
                 cx,
             );

@@ -113,7 +113,10 @@ fn run_action(action: Action) -> Result<(), String> {
                 .collect();
             match errors.first() {
                 None => Ok(()),
-                Some(first) => Err(format!("{} of {total} failed ({first})", errors.len())),
+                Some(first) => Err(format!(
+                    "Couldn't finish {} of {total}: {first}",
+                    errors.len()
+                )),
             }
         }
         _ => Ok(()),
@@ -485,7 +488,7 @@ impl OtmApp {
                         num("Processes", 100.),
                         num("CPU", 90.),
                         num("Memory", 110.),
-                        num("Share of Memory", 140.),
+                        num("Share", 140.),
                     ],
                     users
                         .into_iter()
@@ -905,10 +908,10 @@ impl OtmApp {
                 None => groups.push((b.label, b.danger, vec![b.action.clone()])),
             }
         }
-        let noun = match self.page {
-            Page::Startup => "startup items",
-            Page::Services => "services",
-            _ => "items",
+        let (noun_one, noun_many) = match self.page {
+            Page::Startup => ("startup item", "startup items"),
+            Page::Services => ("service", "services"),
+            _ => ("item", "items"),
         };
         let mut out: Vec<AnyElement> = Vec::new();
         for (i, (label, danger_btn, actions)) in groups.into_iter().enumerate() {
@@ -921,7 +924,7 @@ impl OtmApp {
                 other => other,
             };
             let batch = Action::Batch {
-                what: format!("{past} {count} {noun}"),
+                what: format!("{past} {count} {}", ui::plural(count, noun_one, noun_many)),
                 actions,
             };
             out.push(
@@ -1012,7 +1015,10 @@ impl OtmApp {
                         div()
                             .text_base()
                             .font_weight(FontWeight::BOLD)
-                            .child(format!("Move {n} apps to the Trash?")),
+                            .child(format!(
+                                "Move {n} {} to the Trash?",
+                                ui::plural(n, "app", "apps")
+                            )),
                     )
                     .child(
                         div()
@@ -1047,7 +1053,10 @@ impl OtmApp {
                                             .collect();
                                         this.perform(
                                             Action::Batch {
-                                                what: format!("Moved {n} apps to the Trash"),
+                                                what: format!(
+                                                    "Moved {n} {} to the Trash",
+                                                    ui::plural(n, "app", "apps")
+                                                ),
                                                 actions,
                                             },
                                             cx,
@@ -1065,8 +1074,8 @@ impl OtmApp {
             Page::Users => "No users",
             Page::Startup => "No startup items",
             Page::Services => "No services",
-            Page::Connections => "No open connections",
-            Page::Apps => "No apps found",
+            Page::Connections => "No connections",
+            Page::Apps => "No apps",
             _ => "Nothing to show",
         };
         div()
@@ -1080,16 +1089,16 @@ impl OtmApp {
             .gap_2()
             .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(
                 if !self.query.trim().is_empty() {
-                    format!("Nothing matches “{}”", self.query.trim())
+                    format!("No matches for “{}”", self.query.trim())
                 } else if filtered {
-                    "Nothing matches the filter".to_string()
+                    "No matches".to_string()
                 } else {
                     what.to_string()
                 },
             ))
             .when(filtered, |d| {
                 d.child(
-                    ui::pill(t, "listing-clear", "Clear filter", true)
+                    ui::pill(t, "listing-clear", "Clear", true)
                         .debug_selector(|| "listing-clear".into())
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.clear_filter();
@@ -1314,7 +1323,7 @@ impl OtmApp {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Largest folders in your home"),
+                            .child("Largest Folders"),
                     )
                     .when(latest.is_some(), |d| {
                         d.child(self.columns_button(t, "folders", cx).mr_2())
@@ -1326,7 +1335,7 @@ impl OtmApp {
                             if self.scanning {
                                 "Scanning…"
                             } else {
-                                "Scan now"
+                                "Scan Now"
                             },
                             self.scanning,
                         )
@@ -1343,12 +1352,7 @@ impl OtmApp {
                     ),
             )
             .when(latest.is_none(), |d| {
-                d.child(
-                    div()
-                        .text_sm()
-                        .text_color(t.text_dim)
-                        .child("No scan yet. Press Scan now."),
-                )
+                d.child(div().text_sm().text_color(t.text_dim).child("No scans yet"))
             })
             .when(latest.is_some(), |d| {
                 d.child(
@@ -1376,7 +1380,7 @@ impl OtmApp {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Scan history"),
+                            .child("Scan History"),
                     )
                     .when(!self.scans.is_empty(), |d| {
                         d.child(self.columns_button(t, "scans", cx).mr_2())
@@ -1402,9 +1406,9 @@ impl OtmApp {
             t,
             "Disk Space",
             if self.scanning {
-                "Scanning your home folder (up to 5 minutes)…".into()
+                "Scanning…".into()
             } else {
-                format!("{} saved scans", self.scans.len())
+                String::new()
             },
         )
         .child(self.page_filter(t, cx))
@@ -1466,77 +1470,73 @@ impl OtmApp {
                 .child(div().child(v))
         };
         let opt = |v: Option<String>| v.unwrap_or_else(|| "—".into());
-        self.page_frame(
-            t,
-            "Power & Thermal",
-            "Battery, charger and thermal state from pmset and ioreg".into(),
-        )
-        .child(scrollbar::scroll_area(
-            t,
-            "power-scroll",
-            "power-vbar",
-            &self.power_scroll,
-            div()
-                .px_4()
-                .pb_4()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_3()
-                .child(
-                    card(t)
-                        .w(px(360.))
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t.text_dim)
-                                .child("BATTERY"),
-                        )
-                        .child(
-                            div()
-                                .text_2xl()
-                                .font_weight(FontWeight::BOLD)
-                                .child(opt(p.percent.map(|x| format!("{x}%")))),
-                        )
-                        .child(ui::meter(t, p.percent.unwrap_or(0) as f32, t.good.into()))
-                        .child(row("Power source", p.source.clone()))
-                        .child(row("Status", p.status.clone()))
-                        .child(row("Draw", opt(p.watts.map(|w| format!("{w:.1} W")))))
-                        .child(row("Voltage", opt(p.voltage.map(|v| format!("{v:.2} V"))))),
-                )
-                .child(
-                    card(t)
-                        .w(px(360.))
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t.text_dim)
-                                .child("HEALTH & THERMAL"),
-                        )
-                        .child(row(
-                            "Battery health",
-                            opt(p.health.map(|h| format!("{h:.0}%"))),
-                        ))
-                        .child(row("Cycle count", opt(p.cycles.map(|c| c.to_string()))))
-                        .child(row(
-                            "Battery temperature",
-                            opt(p.temperature.map(|c| format!("{c:.1} °C"))),
-                        ))
-                        .child(row("Thermal state", p.thermal.clone()))
-                        .child(row(
-                            "Low Power Mode",
-                            if p.low_power_mode {
-                                "On".into()
-                            } else {
-                                "Off".into()
-                            },
-                        ))
-                        .child(row("CPU frequency", "Needs root (powermetrics)".into())),
-                ),
-            cx,
-        ))
+        self.page_frame(t, "Power", String::new())
+            .child(scrollbar::scroll_area(
+                t,
+                "power-scroll",
+                "power-vbar",
+                &self.power_scroll,
+                div()
+                    .px_4()
+                    .pb_4()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(
+                        card(t)
+                            .w(px(360.))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.text_dim)
+                                    .child("BATTERY"),
+                            )
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(opt(p.percent.map(|x| format!("{x}%")))),
+                            )
+                            .child(ui::meter(t, p.percent.unwrap_or(0) as f32, t.good.into()))
+                            .child(row("Power source", p.source.clone()))
+                            .child(row("Status", p.status.clone()))
+                            .child(row("Power draw", opt(p.watts.map(|w| format!("{w:.1} W")))))
+                            .child(row("Voltage", opt(p.voltage.map(|v| format!("{v:.2} V"))))),
+                    )
+                    .child(
+                        card(t)
+                            .w(px(360.))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.text_dim)
+                                    .child("HEALTH & THERMAL"),
+                            )
+                            .child(row(
+                                "Battery health",
+                                opt(p.health.map(|h| format!("{h:.0}%"))),
+                            ))
+                            .child(row("Cycle count", opt(p.cycles.map(|c| c.to_string()))))
+                            .child(row(
+                                "Battery temperature",
+                                opt(p.temperature.map(|c| format!("{c:.1} °C"))),
+                            ))
+                            .child(row("Thermal state", p.thermal.clone()))
+                            .child(row(
+                                "Low power mode",
+                                if p.low_power_mode {
+                                    "On".into()
+                                } else {
+                                    "Off".into()
+                                },
+                            ))
+                            .child(row("CPU frequency", "Needs admin rights".into())),
+                    ),
+                cx,
+            ))
     }
 
     pub fn render_bench(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1559,236 +1559,217 @@ impl OtmApp {
                 .map(|r| format!("{:.0} {unit}", f(r)))
                 .unwrap_or_else(|| "—".into())
         };
-        self.page_frame(
-            t,
-            "Benchmarks",
-            "CPU single and all cores, memory bandwidth, and uncached disk (F_NOCACHE)".into(),
-        )
-        .child(
-            div().px_4().pb_3().child(
-                ui::pill(
-                    t,
-                    "bench",
-                    if self.benching {
-                        "Running… (about 20 s)"
-                    } else {
-                        "Run benchmarks"
-                    },
-                    self.benching,
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if this.benching {
-                        return;
-                    }
-                    this.benching = true;
-                    this.run_bg(cx, sysops::run_benchmarks, |app, r, _| {
-                        app.benching = false;
-                        app.bench = Some(r);
-                    });
-                })),
-            ),
-        )
-        .child(scrollbar::scroll_area(
-            t,
-            "bench-scroll",
-            "bench-vbar",
-            &self.bench_scroll,
-            div()
-                .px_4()
-                .pb_4()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_3()
-                .child(metric(
-                    "SINGLE CORE",
-                    v(|r| r.single_core, "Mops/s"),
-                    "integer mixing, 1 thread · higher is better",
-                ))
-                .child(metric(
-                    "ALL CORES",
-                    v(|r| r.multi_core, "Mops/s"),
-                    "same workload on every logical core · higher is better",
-                ))
-                .child(metric(
-                    "SCALING",
-                    b.as_ref()
-                        .map(|r| {
-                            format!(
-                                "{:.1}× / {}",
-                                r.multi_core / r.single_core.max(1.),
-                                r.threads
-                            )
-                        })
-                        .unwrap_or_else(|| "—".into()),
-                    "multi ÷ single, threads",
-                ))
-                .child(metric(
-                    "MEMORY",
-                    b.as_ref()
-                        .map(|r| format!("{:.1} GB/s", r.memory_gbps))
-                        .unwrap_or_else(|| "—".into()),
-                    "256 MB copy, 4 passes · higher is better",
-                ))
-                .child(metric(
-                    "DISK WRITE",
-                    v(|r| r.disk_write_mbps, "MB/s"),
-                    "512 MB sequential, cache bypassed · higher is better",
-                ))
-                .child(metric(
-                    "DISK READ",
-                    v(|r| r.disk_read_mbps, "MB/s"),
-                    "512 MB sequential, cache bypassed · higher is better",
-                )),
-            cx,
-        ))
+        self.page_frame(t, "Benchmarks", String::new())
+            .child(
+                div().px_4().pb_3().child(
+                    ui::pill(
+                        t,
+                        "bench",
+                        if self.benching {
+                            "Running… (about 20 s)"
+                        } else {
+                            "Run Benchmarks"
+                        },
+                        self.benching,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if this.benching {
+                            return;
+                        }
+                        this.benching = true;
+                        this.run_bg(cx, sysops::run_benchmarks, |app, r, _| {
+                            app.benching = false;
+                            app.bench = Some(r);
+                        });
+                    })),
+                ),
+            )
+            .child(scrollbar::scroll_area(
+                t,
+                "bench-scroll",
+                "bench-vbar",
+                &self.bench_scroll,
+                div()
+                    .px_4()
+                    .pb_4()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(metric(
+                        "SINGLE CORE",
+                        v(|r| r.single_core, "M ops/s"),
+                        "1 thread · higher is better",
+                    ))
+                    .child(metric(
+                        "ALL CORES",
+                        v(|r| r.multi_core, "M ops/s"),
+                        "All cores · higher is better",
+                    ))
+                    .child(metric(
+                        "SCALING",
+                        b.as_ref()
+                            .map(|r| {
+                                format!(
+                                    "{:.1}× / {}",
+                                    r.multi_core / r.single_core.max(1.),
+                                    r.threads
+                                )
+                            })
+                            .unwrap_or_else(|| "—".into()),
+                        "All cores ÷ one core",
+                    ))
+                    .child(metric(
+                        "MEMORY",
+                        b.as_ref()
+                            .map(|r| format!("{:.1} GB/s", r.memory_gbps))
+                            .unwrap_or_else(|| "—".into()),
+                        "256 MB copy, 4 passes · higher is better",
+                    ))
+                    .child(metric(
+                        "DISK WRITE",
+                        v(|r| r.disk_write_mbps, "MB/s"),
+                        "512 MB sequential, cache bypassed · higher is better",
+                    ))
+                    .child(metric(
+                        "DISK READ",
+                        v(|r| r.disk_read_mbps, "MB/s"),
+                        "512 MB sequential, cache bypassed · higher is better",
+                    )),
+                cx,
+            ))
     }
 
     pub fn render_recorder(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let recording = self.recording.as_ref().map(|f| f.len());
         let replay = self.replay.clone();
-        self.page_frame(
-            t,
-            "Flight Recorder",
-            format!(
-                "Saved as {} files in {}",
-                recorder::FORMAT,
-                recorder::dir().display()
-            ),
-        )
-        .child(
-            div()
-                .px_4()
-                .pb_3()
-                .flex()
-                .flex_row()
-                .gap_2()
-                .items_center()
-                .child(match recording {
-                    None => ui::pill_icon(t, "rec", "circle", "Start recording", false).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.recording = Some(Vec::new());
-                            cx.notify();
-                        }),
-                    ),
-                    Some(_) => ui::pill_icon(t, "rec", "square", "Stop and save", true).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            let frames = this.recording.take().unwrap_or_default();
-                            this.notice = Some(match recorder::save(frames) {
-                                Ok(p) => (
-                                    format!(
-                                        "Saved {}",
-                                        p.file_name().unwrap_or_default().to_string_lossy()
+        self.page_frame(t, "Recorder", String::new())
+            .child(
+                div()
+                    .px_4()
+                    .pb_3()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .items_center()
+                    .child(match recording {
+                        None => ui::pill_icon(t, "rec", "circle", "Start Recording", false)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.recording = Some(Vec::new());
+                                cx.notify();
+                            })),
+                        Some(_) => ui::pill_icon(t, "rec", "square", "Stop and Save", true)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let frames = this.recording.take().unwrap_or_default();
+                                this.notice = Some(match recorder::save(frames) {
+                                    Ok(p) => (
+                                        format!(
+                                            "Saved {}",
+                                            p.file_name().unwrap_or_default().to_string_lossy()
+                                        ),
+                                        false,
                                     ),
-                                    false,
+                                    Err(e) => (e, true),
+                                });
+                                this.recordings = recorder::list();
+                                cx.notify();
+                            })),
+                    })
+                    .when_some(recording, |d, n| {
+                        d.child(div().text_xs().text_color(t.hot).child(format!(
+                            "Recording · {n} {}",
+                            ui::plural(n, "frame", "frames")
+                        )))
+                    }),
+            )
+            .child(scrollbar::scroll_area(
+                t,
+                "rec-scroll",
+                "rec-vbar",
+                &self.rec_scroll,
+                div()
+                    .px_4()
+                    .pb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .when_some(replay, |d, rec| {
+                        let peak = rec.frames.iter().map(|f| f.cpu).fold(0., f32::max);
+                        d.child(
+                            card(t)
+                                .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
+                                    "Replay · {} {} · peak CPU {peak:.0}%",
+                                    rec.frames.len(),
+                                    ui::plural(rec.frames.len(), "frame", "frames")
+                                )))
+                                .child(div().text_xs().text_color(t.text_dim).child("CPU"))
+                                .child(ui::sparkline(
+                                    rec.frames.iter().map(|f| f.cpu),
+                                    100.,
+                                    60.,
+                                    t.accent.into(),
+                                    rec.frames.len().max(1),
+                                ))
+                                .child(div().text_xs().text_color(t.text_dim).child("Memory"))
+                                .child(ui::sparkline(
+                                    rec.frames.iter().map(|f| f.memory),
+                                    100.,
+                                    40.,
+                                    t.good.into(),
+                                    rec.frames.len().max(1),
+                                ))
+                                .children(
+                                    rec.frames
+                                        .iter()
+                                        .max_by(|a, b| a.cpu.total_cmp(&b.cpu))
+                                        .map(|f| {
+                                            div().text_xs().text_color(t.text_dim).child(format!(
+                                                "Busiest at peak: {}",
+                                                f.top
+                                                    .iter()
+                                                    .map(|(n, c)| format!("{n} {c:.0}%"))
+                                                    .collect::<Vec<_>>()
+                                                    .join(", ")
+                                            ))
+                                        }),
                                 ),
-                                Err(e) => (e, true),
-                            });
-                            this.recordings = recorder::list();
-                            cx.notify();
-                        }),
-                    ),
-                })
-                .when_some(recording, |d, n| {
-                    d.child(
-                        div()
-                            .text_xs()
-                            .text_color(t.hot)
-                            .child(format!("Recording · {n} frames")),
-                    )
-                }),
-        )
-        .child(scrollbar::scroll_area(
-            t,
-            "rec-scroll",
-            "rec-vbar",
-            &self.rec_scroll,
-            div()
-                .px_4()
-                .pb_4()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .when_some(replay, |d, rec| {
-                    let peak = rec.frames.iter().map(|f| f.cpu).fold(0., f32::max);
-                    d.child(
-                        card(t)
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                                "Replay · {} frames · peak CPU {peak:.0}%",
-                                rec.frames.len()
-                            )))
-                            .child(div().text_xs().text_color(t.text_dim).child("CPU"))
-                            .child(ui::sparkline(
-                                rec.frames.iter().map(|f| f.cpu),
-                                100.,
-                                60.,
-                                t.accent.into(),
-                                rec.frames.len().max(1),
-                            ))
-                            .child(div().text_xs().text_color(t.text_dim).child("Memory"))
-                            .child(ui::sparkline(
-                                rec.frames.iter().map(|f| f.memory),
-                                100.,
-                                40.,
-                                t.good.into(),
-                                rec.frames.len().max(1),
-                            ))
-                            .children(
-                                rec.frames
-                                    .iter()
-                                    .max_by(|a, b| a.cpu.total_cmp(&b.cpu))
-                                    .map(|f| {
-                                        div().text_xs().text_color(t.text_dim).child(format!(
-                                            "Busiest at peak: {}",
-                                            f.top
-                                                .iter()
-                                                .map(|(n, c)| format!("{n} {c:.0}%"))
-                                                .collect::<Vec<_>>()
-                                                .join(", ")
-                                        ))
-                                    }),
-                            ),
-                    )
-                })
-                .child(
-                    card(t)
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Saved recordings"),
                         )
-                        .children(self.recordings.iter().enumerate().map(|(i, path)| {
-                            let p = path.clone();
-                            div()
-                                .id(("recording", i))
-                                .flex()
-                                .flex_row()
-                                .py_1()
-                                .px_1()
-                                .rounded(px(6.))
-                                .text_sm()
-                                .cursor_pointer()
-                                .hover(|h| h.bg(t.glass_hover))
-                                .child(
-                                    div().flex_1().child(
-                                        path.file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy()
-                                            .into_owned(),
-                                    ),
-                                )
-                                .child(div().text_xs().text_color(t.accent).child("Replay"))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    match recorder::load(&p) {
-                                        Ok(r) => this.replay = Some(r),
-                                        Err(e) => this.notice = Some((e, true)),
-                                    }
-                                    cx.notify();
-                                }))
-                        })),
-                ),
-            cx,
-        ))
+                    })
+                    .child(
+                        card(t)
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Recordings"))
+                            .children(self.recordings.iter().enumerate().map(|(i, path)| {
+                                let p = path.clone();
+                                div()
+                                    .id(("recording", i))
+                                    .flex()
+                                    .flex_row()
+                                    .py_1()
+                                    .px_1()
+                                    .rounded(px(6.))
+                                    .text_sm()
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(t.glass_hover))
+                                    .child(
+                                        div().flex_1().child(
+                                            path.file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .into_owned(),
+                                        ),
+                                    )
+                                    .child(div().text_xs().text_color(t.accent).child("Replay"))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        match recorder::load(&p) {
+                                            Ok(r) => this.replay = Some(r),
+                                            Err(e) => this.notice = Some((e, true)),
+                                        }
+                                        cx.notify();
+                                    }))
+                            })),
+                    ),
+                cx,
+            ))
     }
 
     pub fn render_settings(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1802,192 +1783,185 @@ impl OtmApp {
                 .child(div().w(px(220.)).text_sm().child(label))
                 .child(control)
         };
-        self.page_frame(
-            t,
-            "Settings",
-            format!(
-                "Saved to {}",
-                sysops::data_dir().join("native-settings.json").display()
-            ),
-        )
-        .child(scrollbar::scroll_area(
-            t,
-            "settings-scroll",
-            "settings-vbar",
-            &self.settings_scroll,
-            div().px_4().pb_4().child(
-                card(t)
-                    .child(row(
-                        "Appearance",
-                        ui::segmented(t)
-                            .children(
-                                [Appearance::System, Appearance::Light, Appearance::Dark].map(
-                                    |a| {
-                                        ui::pill(
-                                            t,
-                                            SharedString::from(format!("appearance-{a:?}")),
-                                            format!("{a:?}"),
-                                            s.appearance == a,
-                                        )
-                                        .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                this.settings.appearance = a;
-                                                this.settings.save();
-                                                cx.notify();
-                                            }),
-                                        )
-                                    },
-                                ),
-                            )
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Glass",
-                        ui::segmented(t)
-                            .children([Glass::Clear, Glass::Tinted].map(|g| {
-                                ui::pill(
-                                    t,
-                                    SharedString::from(format!("glass-{g:?}")),
-                                    format!("{g:?}"),
-                                    s.glass == g,
+        self.page_frame(t, "Settings", String::new())
+            .child(scrollbar::scroll_area(
+                t,
+                "settings-scroll",
+                "settings-vbar",
+                &self.settings_scroll,
+                div().px_4().pb_4().child(
+                    card(t)
+                        .child(row(
+                            "Appearance",
+                            ui::segmented(t)
+                                .children(
+                                    [Appearance::System, Appearance::Light, Appearance::Dark].map(
+                                        |a| {
+                                            ui::pill(
+                                                t,
+                                                SharedString::from(format!("appearance-{a:?}")),
+                                                format!("{a:?}"),
+                                                s.appearance == a,
+                                            )
+                                            .on_click(
+                                                cx.listener(move |this, _, _, cx| {
+                                                    this.settings.appearance = a;
+                                                    this.settings.save();
+                                                    cx.notify();
+                                                }),
+                                            )
+                                        },
+                                    ),
                                 )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.glass = g;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Refresh every",
-                        ui::segmented(t)
-                            .children([1u64, 2, 5, 10].map(|n| {
-                                ui::pill(
-                                    t,
-                                    ("refresh-rate", n as usize),
-                                    format!("{n} s"),
-                                    s.refresh_secs == n,
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Glass",
+                            ui::segmented(t)
+                                .children([Glass::Clear, Glass::Tinted].map(|g| {
+                                    ui::pill(
+                                        t,
+                                        SharedString::from(format!("glass-{g:?}")),
+                                        format!("{g:?}"),
+                                        s.glass == g,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.glass = g;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Refresh every",
+                            ui::segmented(t)
+                                .children([1u64, 2, 5, 10].map(|n| {
+                                    ui::pill(
+                                        t,
+                                        ("refresh-rate", n as usize),
+                                        format!("{n} s"),
+                                        s.refresh_secs == n,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.refresh_secs = n;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Text size",
+                            ui::segmented(t)
+                                .children([90u32, 100, 115, 130].map(|n| {
+                                    ui::pill(
+                                        t,
+                                        ("text-scale", n as usize),
+                                        format!("{n}%"),
+                                        s.text_scale == n,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.text_scale = n;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "High contrast",
+                            ui::segmented(t)
+                                .children([true, false].map(|on| {
+                                    ui::pill(
+                                        t,
+                                        ("contrast", on as usize),
+                                        if on { "On" } else { "Off" },
+                                        s.high_contrast == on,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.high_contrast = on;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Popout style",
+                            ui::segmented(t)
+                                .children(
+                                    std::iter::once(GLASS_SKIN.to_string())
+                                        .chain(skins().into_iter().map(|k| k.name))
+                                        .enumerate()
+                                        .map(|(i, name)| {
+                                            let active = s.popout_skin == name;
+                                            ui::pill(t, ("skin", i), name.clone(), active).on_click(
+                                                cx.listener(move |this, _, _, cx| {
+                                                    this.settings.popout_skin = name.clone();
+                                                    this.settings.save();
+                                                    cx.notify();
+                                                }),
+                                            )
+                                        }),
                                 )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.refresh_secs = n;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Text size",
-                        ui::segmented(t)
-                            .children([90u32, 100, 115, 130].map(|n| {
-                                ui::pill(
-                                    t,
-                                    ("text-scale", n as usize),
-                                    format!("{n}%"),
-                                    s.text_scale == n,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.text_scale = n;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "High contrast",
-                        ui::segmented(t)
-                            .children([true, false].map(|on| {
-                                ui::pill(
-                                    t,
-                                    ("contrast", on as usize),
-                                    if on { "On" } else { "Off" },
-                                    s.high_contrast == on,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.high_contrast = on;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Popout skin",
-                        ui::segmented(t)
-                            .children(
-                                std::iter::once(GLASS_SKIN.to_string())
-                                    .chain(skins().into_iter().map(|k| k.name))
-                                    .enumerate()
-                                    .map(|(i, name)| {
-                                        let active = s.popout_skin == name;
-                                        ui::pill(t, ("skin", i), name.clone(), active).on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                this.settings.popout_skin = name.clone();
-                                                this.settings.save();
-                                                cx.notify();
-                                            }),
-                                        )
-                                    }),
-                            )
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Mark this app in Processes",
-                        ui::segmented(t)
-                            .children([true, false].map(|on| {
-                                ui::pill(
-                                    t,
-                                    ("mark-self", on as usize),
-                                    if on { "On" } else { "Off" },
-                                    s.mark_self == on,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.mark_self = on;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    ))
-                    .child(row(
-                        "Holiday themes",
-                        ui::segmented(t)
-                            .flex_wrap()
-                            .max_w(px(560.))
-                            .children(holiday_modes().into_iter().map(|(label, mode)| {
-                                let selector = format!("holiday-{label}");
-                                ui::pill(
-                                    t,
-                                    SharedString::from(selector.clone()),
-                                    label,
-                                    s.holiday_theme == mode,
-                                )
-                                .debug_selector(move || selector)
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.settings.holiday_theme = mode;
-                                        this.settings.save();
-                                        cx.notify();
-                                    },
-                                ))
-                            }))
-                            .into_any_element(),
-                    )),
-            ),
-            cx,
-        ))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Mark this app",
+                            ui::segmented(t)
+                                .children([true, false].map(|on| {
+                                    ui::pill(
+                                        t,
+                                        ("mark-self", on as usize),
+                                        if on { "On" } else { "Off" },
+                                        s.mark_self == on,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.mark_self = on;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        ))
+                        .child(row(
+                            "Holiday themes",
+                            ui::segmented(t)
+                                .flex_wrap()
+                                .max_w(px(560.))
+                                .children(holiday_modes().into_iter().map(|(label, mode)| {
+                                    let selector = format!("holiday-{label}");
+                                    ui::pill(
+                                        t,
+                                        SharedString::from(selector.clone()),
+                                        label,
+                                        s.holiday_theme == mode,
+                                    )
+                                    .debug_selector(move || selector)
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.settings.holiday_theme = mode;
+                                            this.settings.save();
+                                            cx.notify();
+                                        },
+                                    ))
+                                }))
+                                .into_any_element(),
+                        )),
+                ),
+                cx,
+            ))
     }
 }
 

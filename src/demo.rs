@@ -1037,7 +1037,7 @@ fn script(scene: &str) -> Vec<(u64, Step)> {
                 app.context_menu = None;
                 app.demo_kill(&[1604]);
                 app.notice = Some(("Force quit 1 process".into(), false));
-                app.demo_caption = Some("Force Quit — gone".into());
+                app.demo_caption = Some("Force quit — gone".into());
             }),
             step(2600, |app: &mut OtmApp, _: &mut Context<OtmApp>| {
                 let id = app.group_id("Google Chrome").unwrap_or(RowId::Pid(1200));

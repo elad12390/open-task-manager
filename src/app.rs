@@ -70,7 +70,7 @@ impl Page {
             Page::Startup => "Startup Items",
             Page::Services => "Services",
             Page::Connections => "Connections",
-            Page::Apps => "Installed Apps",
+            Page::Apps => "Apps",
             Page::Disk => "Disk Space",
             Page::Power => "Power",
             Page::Benchmarks => "Benchmarks",
@@ -864,12 +864,7 @@ impl OtmApp {
                     .gap_2()
                     .px_2()
                     .when(self.paused, |d| {
-                        d.child(
-                            div()
-                                .text_xs()
-                                .text_color(t.warn)
-                                .child("Updates paused · ⌥⌘P resumes"),
-                        )
+                        d.child(div().text_xs().text_color(t.warn).child("Updates paused"))
                     })
                     .child(mini_meter(t, "CPU", s.cpu))
                     .child(mini_meter(t, "Memory", mem))
@@ -942,46 +937,19 @@ impl Render for OtmApp {
             Page::Overview => self.render_overview(&t, cx).into_any_element(),
             Page::Processes => self.render_processes(&t, cx).into_any_element(),
             Page::Users => self
-                .render_listing(
-                    &t,
-                    "Users",
-                    "Processes, CPU and memory per account. Group Processes by User for the full list."
-                        .into(),
-                    cx,
-                )
+                .render_listing(&t, "Users", String::new(), cx)
                 .into_any_element(),
             Page::Startup => self
-                .render_listing(
-                    &t,
-                    "Startup Items",
-                    "Launch agents and daemons. Your own agents can be enabled or disabled.".into(),
-                    cx,
-                )
+                .render_listing(&t, "Startup Items", String::new(), cx)
                 .into_any_element(),
             Page::Services => self
-                .render_listing(
-                    &t,
-                    "Services",
-                    "launchd jobs in your session. Restart or stop them.".into(),
-                    cx,
-                )
+                .render_listing(&t, "Services", String::new(), cx)
                 .into_any_element(),
             Page::Connections => self
-                .render_listing(
-                    &t,
-                    "Connections",
-                    "Open TCP and UDP sockets per process (lsof)".into(),
-                    cx,
-                )
+                .render_listing(&t, "Connections", String::new(), cx)
                 .into_any_element(),
             Page::Apps => self
-                .render_listing(
-                    &t,
-                    "Installed Apps",
-                    "Apps in /Applications and ~/Applications. Uninstall moves them to the Trash."
-                        .into(),
-                    cx,
-                )
+                .render_listing(&t, "Apps", String::new(), cx)
                 .into_any_element(),
             Page::Disk => self.render_disk(&t, cx).into_any_element(),
             Page::Power => self.render_power(&t, cx).into_any_element(),

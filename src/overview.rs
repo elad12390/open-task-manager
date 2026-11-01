@@ -98,7 +98,11 @@ impl OtmApp {
                                 t,
                                 "CPU",
                                 crate::metrics::fmt_pct(s.cpu),
-                                format!("{} cores", s.cores.len()),
+                                format!(
+                                    "{} {}",
+                                    s.cores.len(),
+                                    ui::plural(s.cores.len(), "core", "cores")
+                                ),
                             )
                             .child(ui::sparkline(
                                 h.cpu.iter().copied(),

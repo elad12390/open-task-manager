@@ -214,6 +214,11 @@ pub fn tip(
     move |_, cx| cx.new(|_| Tip(text.clone())).into()
 }
 
+/// The noun to put after a count: `plural(1, "process", "processes")` is "process".
+pub fn plural(n: usize, one: &'static str, many: &'static str) -> &'static str {
+    if n == 1 { one } else { many }
+}
+
 pub fn meter(t: &Theme, pct: f32, color: Hsla) -> Div {
     div().h(px(6.)).w_full().rounded_full().bg(t.stroke).child(
         div()

@@ -46,7 +46,7 @@ const APPS: [(&str, &str, u64); 3] = [
     ("Gamma", "2.0", 512),
 ];
 
-/// Opens the window on the Installed Apps listing with `apps`.
+/// Opens the window on the Apps listing with `apps`.
 fn open_apps<'a>(
     cx: &'a mut TestAppContext,
     apps: &[(&str, &str, u64)],

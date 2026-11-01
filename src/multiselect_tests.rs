@@ -284,7 +284,7 @@ fn toolbar_force_quit_asks_about_the_whole_selection(cx: &mut TestAppContext) {
     assert_eq!(
         Some(sorted(vec![pids[0], pids[2]])),
         asked.map(sorted),
-        "Force Quit asks about every selected process, and nothing is signalled before confirming"
+        "Force quit asks about every selected process, and nothing is signalled before confirming"
     );
 }
 

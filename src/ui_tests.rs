@@ -872,7 +872,7 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
     println!("Copy PID -> clipboard {copied:?}");
     assert_eq!(copied, Some(pid.to_string()));
 
-    // Force Quit asks first: Esc (or Return, the default Cancel) leaves the process running.
+    // Force quit asks first: Esc (or Return, the default Cancel) leaves the process running.
     open_menu(cx);
     click(cx, "ctx-Force Quit…");
     assert!(
@@ -1021,7 +1021,7 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
     println!("checked items: {checked:?}");
     assert!(view.read_with(cx, |app, _| app.paused));
     assert!(shown.contains(&"✓ Pause Updates".to_string()));
-    assert!(shown.contains(&"✓ Owner (app, or Operating System)".to_string()));
+    assert!(shown.contains(&"✓ Owner".to_string()));
     assert!(shown.contains(&"✓ Dark".to_string()));
     assert!(shown.contains(&"✓ Users".to_string()));
     assert!(
@@ -1033,7 +1033,7 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let shown = labels(&view.read_with(cx, |app, _| app.menu_state.clone().unwrap()));
     assert!(
-        shown.contains(&"Stop and Save Recording".to_string()),
+        shown.contains(&"Stop and Save".to_string()),
         "File menu offers Stop while recording"
     );
 

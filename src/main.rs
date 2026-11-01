@@ -5,6 +5,8 @@ mod column_fit;
 mod columns;
 mod context_menu;
 #[cfg(test)]
+mod copy_pass_tests;
+#[cfg(test)]
 mod crash_fix_tests;
 mod demo;
 mod filter;
