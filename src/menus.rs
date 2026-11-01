@@ -377,21 +377,20 @@ impl OtmApp {
         if self.is_listing() {
             return self.copy_list_rows(cx);
         }
-        let pids = self.selected_pids();
-        let Some(&pid) = pids.first() else {
+        let rows = self.selected_rows();
+        let Some(&row) = rows.first() else {
             return;
         };
-        let text = self.process_lines(&pids);
+        let n = rows.len();
+        let notice = match row {
+            crate::processes::Row::Process { info, .. } if n == 1 => {
+                format!("Copied the details of {} (PID {})", info.name, info.pid)
+            }
+            _ => format!("Copied {n} rows"),
+        };
+        let text = self.selection_lines();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.notice = Some((
-            match self.snapshot.processes.iter().find(|p| p.pid == pid) {
-                Some(p) if pids.len() == 1 => {
-                    format!("Copied the details of {} (PID {})", p.name, p.pid)
-                }
-                _ => format!("Copied {} rows", pids.len()),
-            },
-            false,
-        ));
+        self.notice = Some((notice, false));
         cx.notify();
     }
 

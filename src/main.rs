@@ -28,6 +28,8 @@ mod pages;
 mod processes;
 mod recorder;
 mod scrollbar;
+#[cfg(test)]
+mod select_anything_tests;
 mod selftest;
 mod settings;
 mod sysops;

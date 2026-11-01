@@ -105,29 +105,39 @@ impl OtmApp {
         out
     }
 
-    /// The menu for a right-click inside a multi-selection: the same actions for every selected row.
-    fn selection_items(&self, pids: &[u32]) -> Vec<Item> {
+    /// The menu for a right-click inside a multi-selection: the same actions for the whole selection.
+    fn selection_items(&self) -> Vec<Item> {
+        let (pids, skipped) = self.selected_pids_and_skipped();
         let n = pids.len();
+        let rows = self.selected_rows().len();
         let pid_list = pids
             .iter()
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join("\n");
+        let note = match skipped {
+            0 => String::new(),
+            k => format!(" · {k} macOS skipped"),
+        };
         vec![
-            item(
-                format!("Quit {n} Processes"),
-                Cmd::Signal {
-                    pids: pids.to_vec(),
-                    sig: libc::SIGTERM,
-                    verb: "Quit",
-                },
-            ),
+            Item {
+                enabled: n > 0,
+                ..item(
+                    format!("Quit {n} Processes{note}"),
+                    Cmd::Signal {
+                        pids: pids.clone(),
+                        sig: libc::SIGTERM,
+                        verb: "Quit",
+                    },
+                )
+            },
             Item {
                 danger: true,
+                enabled: n > 0,
                 ..item(
-                    format!("Force Quit {n} Processes…"),
+                    format!("Force Quit {n} Processes{note}…"),
                     Cmd::Signal {
-                        pids: pids.to_vec(),
+                        pids,
                         sig: libc::SIGKILL,
                         verb: "Force quit",
                     },
@@ -135,20 +145,19 @@ impl OtmApp {
             },
             separator(),
             item(
-                format!("Copy {n} Rows"),
-                Cmd::Copy("the rows", self.process_lines(pids)),
+                format!("Copy {rows} Rows"),
+                Cmd::Copy("the rows", self.selection_lines()),
             ),
             item("Copy PIDs", Cmd::Copy("the PIDs", pid_list)),
         ]
     }
 
     fn all_context_items(&self, id: &RowId) -> Vec<Item> {
+        if self.selection.len() > 1 && self.selection.contains(id) {
+            return self.selection_items();
+        }
         match id {
             RowId::Pid(pid) => {
-                let selected = self.selected_pids();
-                if selected.len() > 1 && selected.contains(pid) {
-                    return self.selection_items(&selected);
-                }
                 let Some(p) = self.snapshot.processes.iter().find(|p| p.pid == *pid) else {
                     return vec![item("Copy PID", Cmd::Copy("the PID", pid.to_string()))];
                 };
@@ -250,7 +259,7 @@ impl OtmApp {
                 ));
                 if !below.is_empty() {
                     items.push(separator());
-                    let folded = self.collapsed.contains(&node_key(p.pid));
+                    let folded = self.folds().contains(&node_key(p.pid));
                     items.push(item(
                         if folded { "Unfold" } else { "Fold" },
                         Cmd::Fold(id.clone()),
@@ -305,7 +314,7 @@ impl OtmApp {
                 }
                 items.push(separator());
                 items.push(item("Copy Name", Cmd::Copy("the name", label)));
-                let folded = self.collapsed.contains(key);
+                let folded = self.folds().contains(key);
                 items.push(item(
                     if folded { "Unfold" } else { "Fold" },
                     Cmd::Fold(id.clone()),

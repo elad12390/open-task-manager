@@ -72,7 +72,15 @@ fn process_pids(app: &OtmApp) -> Vec<u32> {
 }
 
 fn selection(view: &Entity<OtmApp>, cx: &mut VisualTestContext) -> Vec<u32> {
-    let mut pids: Vec<u32> = view.read_with(cx, |app, _| app.selection.iter().copied().collect());
+    let mut pids: Vec<u32> = view.read_with(cx, |app, _| {
+        app.selection
+            .iter()
+            .filter_map(|id| match id {
+                RowId::Pid(pid) => Some(*pid),
+                RowId::Group(_) => None,
+            })
+            .collect()
+    });
     pids.sort();
     pids
 }
@@ -300,7 +308,7 @@ fn selection_survives_refresh_and_drops_exited_processes(cx: &mut TestAppContext
     );
 
     view.update(cx, |app, cx| {
-        app.selection.insert(u32::MAX);
+        app.selection.insert(RowId::Pid(u32::MAX));
         app.drop_exited();
         cx.notify();
     });
