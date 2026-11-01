@@ -701,7 +701,7 @@ fn category_rows(
 
 /// Scroll only along the element's own scroll axis: without this, a scroller that only moves
 /// vertically turns a sideways swipe into vertical movement (and vice versa).
-fn axis_locked<E: gpui::Styled>(mut element: E) -> E {
+pub(crate) fn axis_locked<E: gpui::Styled>(mut element: E) -> E {
     element.style().restrict_scroll_to_axis = Some(true);
     element
 }
@@ -1284,6 +1284,7 @@ impl OtmApp {
                                     // outside it; don't reopen it straight away.
                                     if !std::mem::take(&mut this.column_menu_just_closed) {
                                         this.column_menu = !this.column_menu;
+                                        this.column_menu_table = "processes";
                                     }
                                     cx.notify();
                                 }),
@@ -1417,116 +1418,10 @@ impl OtmApp {
     }
 
     fn column_menu(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .id("column-menu")
+        self.columns_menu(t, "processes", cx)
             .absolute()
             .top(px(64.))
             .right(px(16.))
-            .w(px(260.))
-            .p_2()
-            .flex()
-            .flex_col()
-            .gap_0p5()
-            .bg(t.glass_strong)
-            .border_1()
-            .border_color(t.highlight)
-            .rounded(px(16.))
-            .shadow_lg()
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.column_menu = false;
-                this.column_menu_just_closed = true;
-                cx.notify();
-            }))
-            .child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text_dim)
-                    .child("SHOW, HIDE AND ORDER COLUMNS"),
-            )
-            .children(self.layout.columns.iter().enumerate().map(|(i, c)| {
-                let id = c.id;
-                let last = i + 1 == self.layout.columns.len();
-                div()
-                    .id(("col-opt", i))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(8.))
-                    .text_sm()
-                    .hover(|h| h.bg(t.glass_hover))
-                    .child(
-                        div()
-                            .id(("col-check", i))
-                            .debug_selector(|| format!("col-check-{id:?}"))
-                            .size(px(16.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(5.))
-                            .border_1()
-                            .border_color(if c.visible { t.accent } else { t.stroke })
-                            .when(c.visible, |d| d.bg(t.selection).text_color(gpui::white()))
-                            .text_xs()
-                            .cursor_pointer()
-                            .children(c.visible.then(|| ui::icon("check", 11., gpui::white())))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.layout.toggle(id);
-                                this.layout_changed(cx);
-                            })),
-                    )
-                    // The name toggles the column too: a far bigger target than the box.
-                    .child(
-                        div()
-                            .id(("col-name", i))
-                            .flex_1()
-                            .cursor_pointer()
-                            .child(id.title())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.layout.toggle(id);
-                                this.layout_changed(cx);
-                            })),
-                    )
-                    .child(arrow(t, ("up", i), "arrow-up", i > 0).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.layout.shift(id, -1);
-                            this.layout_changed(cx);
-                        },
-                    )))
-                    .child(
-                        arrow(t, ("down", i), "arrow-down", !last).on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                this.layout.shift(id, 1);
-                                this.layout_changed(cx);
-                            },
-                        )),
-                    )
-            }))
-            .child(
-                div()
-                    .id("reset-columns")
-                    .mt_1()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(8.))
-                    .text_xs()
-                    .text_color(t.accent)
-                    .cursor_pointer()
-                    .hover(|h| h.bg(t.glass_hover))
-                    .child("Reset to default layout")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let group = this.layout.group_by;
-                        this.layout = Default::default();
-                        this.layout.group_by = group;
-                        this.layout_changed(cx);
-                    })),
-            )
     }
 
     fn header(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2070,7 +1965,10 @@ impl OtmApp {
                 self.rows.is_empty() && self.filter_active() && !self.typing_to_suggestion(),
                 |d| d.child(self.empty_state(t, cx)),
             )
-            .when(self.column_menu, |d| d.child(self.column_menu(t, cx)))
+            .when(
+                self.column_menu && self.column_menu_table == "processes",
+                |d| d.child(self.column_menu(t, cx)),
+            )
             .when_some(self.context_menu.clone(), |d, (id, at)| {
                 d.child(deferred(
                     anchored()
@@ -2091,27 +1989,4 @@ impl OtmApp {
             None => div().w(px(14.)).flex_shrink_0().into_any_element(),
         }
     }
-}
-
-fn arrow(
-    t: &Theme,
-    id: (&'static str, usize),
-    icon: &'static str,
-    enabled: bool,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .size(px(20.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.))
-        .when(enabled, |d| {
-            d.cursor_pointer().hover(|h| h.bg(t.glass_strong))
-        })
-        .child(ui::icon(
-            icon,
-            11.,
-            if enabled { t.text_dim } else { t.text_faint },
-        ))
 }

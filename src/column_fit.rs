@@ -9,8 +9,10 @@ use gpui::{Context, FontWeight, TextRun, Window, black, font, px};
 use crate::{
     app::OtmApp,
     columns::{ColumnId, GroupBy},
-    metrics::fmt_bytes,
+    metrics::{fmt_bytes, fmt_duration, fmt_size},
+    pages::LIST_ICON_LEAD,
     processes::{Row, memory_text},
+    sysops,
 };
 
 /// `px_2` on each side of a cell.
@@ -166,6 +168,38 @@ pub fn fitted_width(app: &OtmApp, index: usize, window: &Window) -> Option<f32> 
     Some(widest.clamp(MIN_WIDTH, MAX_WIDTH))
 }
 
+/// The width a column needs for its header and every text in it (`mono` for the figures of a
+/// listing's numeric columns); `lead` is room for an icon before the first text.
+fn fitted_texts(
+    window: &Window,
+    title: &str,
+    text_px: f32,
+    mono: bool,
+    lead: f32,
+    texts: impl Iterator<Item = String>,
+) -> f32 {
+    let small = text_px * 12. / 14.;
+    let mut m = Measure {
+        window,
+        cache: HashMap::new(),
+    };
+    let (face, size) = if mono {
+        (Face::Mono, small)
+    } else {
+        (Face::Text, text_px)
+    };
+    let mut widest = cell(&[m.width(title, Face::Strong, small), SLOT]);
+    for text in texts {
+        let mut kids = Vec::new();
+        if lead > 0. {
+            kids.push(lead);
+        }
+        kids.push(m.width(&text, face, size));
+        widest = widest.max(cell(&kids));
+    }
+    widest.clamp(MIN_WIDTH, MAX_WIDTH)
+}
+
 impl OtmApp {
     /// Double-clicking a column divider: the column takes the width its content needs.
     pub fn fit_column(&mut self, index: usize, window: &Window, cx: &mut Context<Self>) {
@@ -174,5 +208,94 @@ impl OtmApp {
             self.layout.columns[index].width = width;
             self.layout_changed(cx);
         }
+    }
+
+    /// The cell texts of a table column over all its rows, and the room an icon takes before them.
+    fn column_texts(&self, table: &str, index: usize) -> (Vec<String>, f32) {
+        match table {
+            "folders" => {
+                let items = self
+                    .scans
+                    .first()
+                    .map(|s| s.items.as_slice())
+                    .unwrap_or(&[]);
+                let texts = items
+                    .iter()
+                    .map(|f| match index {
+                        0 => f.path.clone(),
+                        1 => fmt_size(f.bytes),
+                        _ => String::new(),
+                    })
+                    .collect();
+                (texts, if index == 0 { LIST_ICON_LEAD } else { 0. })
+            }
+            "scans" => {
+                let now = sysops::now_secs();
+                let texts = self
+                    .scans
+                    .iter()
+                    .map(|s| match index {
+                        0 => format!("{} ago", fmt_duration(now.saturating_sub(s.at))),
+                        1 => s.items.len().to_string(),
+                        _ => fmt_size(s.items.iter().map(|i| i.bytes).sum()),
+                    })
+                    .collect();
+                (texts, 0.)
+            }
+            _ => {
+                let texts = self
+                    .listing
+                    .rows
+                    .iter()
+                    .map(|r| {
+                        r.cells
+                            .get(index)
+                            .map(|c| c.to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                let lead = if index == 0 && self.listing.icons {
+                    LIST_ICON_LEAD
+                } else {
+                    0.
+                };
+                (texts, lead)
+            }
+        }
+    }
+
+    /// Double-clicking a column edge of a listing or Disk table: the column takes the width its
+    /// header and every cell need.
+    pub fn fit_list_column(
+        &mut self,
+        table: &'static str,
+        pos: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.list_resizing = None;
+        let Some(col) = self
+            .table_layouts
+            .get(table)
+            .and_then(|l| l.columns.get(pos))
+            .cloned()
+        else {
+            return;
+        };
+        let (texts, lead) = self.column_texts(table, col.index);
+        let mono = col.numeric && !matches!(table, "folders" | "scans");
+        let width = fitted_texts(
+            window,
+            col.title,
+            self.text_px(),
+            mono,
+            lead,
+            texts.into_iter(),
+        );
+        if let Some(l) = self.table_layouts.get_mut(table) {
+            l.set_width(pos, width);
+        }
+        self.save_table_layouts();
+        cx.notify();
     }
 }

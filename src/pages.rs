@@ -10,12 +10,12 @@ use crate::{
     holidays::{Holiday, HolidayMode},
     icons,
     metrics::{fmt_bytes, fmt_duration, fmt_size},
-    processes::Nav,
+    processes::{Nav, axis_locked},
     recorder,
     scrollbar::{self, Axis},
     settings::{Appearance, GLASS_SKIN, Glass, skins},
     sysops::{self, ServiceAction},
-    tables::{Col, cell},
+    tables::{Col, HEADER_HEIGHT, TABLE_PAD, fixed_cell},
     theme::Theme,
     ui,
 };
@@ -44,7 +44,7 @@ pub struct ActionButton {
 }
 
 /// The 16 px icon and its gap, before a listing's first cell.
-const LIST_ICON_LEAD: f32 = 20.;
+pub(crate) const LIST_ICON_LEAD: f32 = 20.;
 
 pub struct ListRow {
     /// Stable identity of the row (its file, path, label or endpoint), for the selection.
@@ -685,11 +685,11 @@ impl OtmApp {
                 crate::filter::listing_matches(&self.list_chips, &self.query, &titles, &r.cells)
             })
             .collect();
-        crate::tables::sort_items(
-            &mut rows,
-            self.table_sort(Self::listing_table(self.page)),
-            |r, c| r.keys.get(c).cloned().unwrap_or(K::Num(0.)),
-        );
+        let table = Self::listing_table(self.page);
+        self.ensure_table(table, &headers);
+        crate::tables::sort_items(&mut rows, self.table_sort(table), |r, c| {
+            r.keys.get(c).cloned().unwrap_or(K::Num(0.))
+        });
         self.listing = Listing {
             headers,
             rows: Rc::new(rows),
@@ -778,8 +778,53 @@ impl OtmApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = *t;
+        let table = Self::listing_table(self.page);
+        let headers = self.listing.headers.clone();
+        self.ensure_table(table, &headers);
         let count = self.listing.rows.len();
         let has_actions = self.listing.rows.iter().any(|r| !r.actions.is_empty());
+        let width =
+            self.table_content_width(table) + TABLE_PAD + if has_actions { ACTIONS_W } else { 0. };
+        let header = div()
+            .flex()
+            .flex_row()
+            .h(px(HEADER_HEIGHT))
+            .items_center()
+            .px_3()
+            .border_b_1()
+            .border_color(t.stroke)
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(t.text_dim)
+            .child(self.table_header(t, table, cx).flex_1().min_w_0())
+            .when(has_actions, |d| {
+                d.child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(ACTIONS_W))
+                        .px_2()
+                        .child("Actions"),
+                )
+            });
+        let list = axis_locked(
+            uniform_list(
+                "listing",
+                count,
+                cx.processor(move |this, range: Range<usize>, _, cx| {
+                    let rows = this.listing.rows.clone();
+                    range
+                        .filter_map(|ix| {
+                            let r = rows.get(ix)?;
+                            Some(this.render_list_row(&theme, ix, r, cx))
+                        })
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .flex_1()
+            .py_1()
+            .track_scroll(self.listing_scroll.clone()),
+        );
+        let body = div().h_full().flex().flex_col().child(header).child(list);
         self.page_frame(t, title, subtitle)
             .child(
                 div()
@@ -798,6 +843,7 @@ impl OtmApp {
                     ))
                     .children(self.bulk_actions(t, cx))
                     .child(div().flex_1())
+                    .child(div().mb_2().mr_2().child(self.columns_button(t, table, cx)))
                     .when(self.page != Page::Users, |d| {
                         d.child(
                             div().mb_2().mr_4().child(
@@ -809,64 +855,19 @@ impl OtmApp {
             )
             .child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .h(px(28.))
-                    .items_center()
-                    .px_3()
-                    .border_b_1()
-                    .border_color(t.stroke)
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text_dim)
-                    .child(
-                        self.sort_header(
-                            t,
-                            Self::listing_table(self.page),
-                            &self.listing.headers,
-                            true,
-                            cx,
-                        )
-                        .flex_1()
-                        .min_w_0(),
-                    )
-                    .when(has_actions, |d| {
-                        d.child(
-                            div()
-                                .flex_shrink_0()
-                                .w(px(ACTIONS_W))
-                                .px_2()
-                                .child("Actions"),
-                        )
-                    }),
-            )
-            .child(
-                div()
                     .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_h_0()
-                    .child(
-                        uniform_list(
-                            "listing",
-                            count,
-                            cx.processor(move |this, range: Range<usize>, _, cx| {
-                                let rows = this.listing.rows.clone();
-                                let widths: Vec<f32> =
-                                    this.listing.headers.iter().map(|h| h.width).collect();
-                                range
-                                    .filter_map(|ix| {
-                                        let r = rows.get(ix)?;
-                                        Some(this.render_list_row(&theme, ix, r, &widths, cx))
-                                    })
-                                    .collect::<Vec<_>>()
-                            }),
-                        )
-                        .flex_1()
-                        .py_1()
-                        .track_scroll(self.listing_scroll.clone()),
-                    )
+                    .child(self.scroll_x(
+                        t,
+                        ("listing-table", "listing-hbar", true),
+                        &self.listing_hscroll,
+                        width,
+                        body,
+                        cx,
+                    ))
                     .when_some(
                         scrollbar::scrollbar(
                             t,
@@ -875,7 +876,7 @@ impl OtmApp {
                             &scrollbar::of_list(&self.listing_scroll),
                             cx,
                         ),
-                        |d, bar| d.child(bar),
+                        |d, bar| d.child(bar.top(px(HEADER_HEIGHT))),
                     ),
             )
             .when(!self.listing_loading && count == 0, |d| {
@@ -1114,12 +1115,50 @@ impl OtmApp {
         t: &Theme,
         ix: usize,
         r: &ListRow,
-        widths: &[f32],
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_actions = self.listing.rows.iter().any(|r| !r.actions.is_empty());
         let selected = self.list_selection.contains(&r.key);
         let key = r.key.clone();
+        let table = Self::listing_table(self.page);
+        let columns: Vec<crate::tables::ListColumn> = self
+            .table_layouts
+            .get(table)
+            .map(|l| l.shown().map(|(_, c)| c.clone()).collect())
+            .unwrap_or_default();
+        let cells: Vec<AnyElement> = columns
+            .iter()
+            .map(|col| {
+                let i = col.index;
+                let full = r.cells.get(i).map(|c| c.to_string()).unwrap_or_default();
+                let lead = i == 0 && self.listing.icons;
+                let room = col.width - 16. - if lead { LIST_ICON_LEAD } else { 0. };
+                // Paths and endpoints keep their end; everything else ends in "…".
+                let shown = if matches!(col.title, "File" | "Location" | "Endpoint") {
+                    crate::ui::ellipsize_middle(cx, full.clone(), room, self.text_px())
+                } else {
+                    crate::ui::ellipsize(cx, full.clone(), room, self.text_px())
+                };
+                let cut = shown != full;
+                fixed_cell(col.width)
+                    .id(("list-cell", ix * 16 + i))
+                    .whitespace_nowrap()
+                    .when(col.numeric, |d| {
+                        d.text_right().font_family("Menlo").text_xs()
+                    })
+                    .when(i > 0 && !selected, |d| d.text_color(t.text_dim))
+                    .when(lead, |d| {
+                        d.flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .child(self.list_icon(r.icon.as_deref()))
+                    })
+                    .child(shown)
+                    .when(cut, |d| d.tooltip(crate::ui::tip(full)))
+                    .into_any_element()
+            })
+            .collect();
         div()
             .id(("list-row", ix))
             .debug_selector(move || format!("list-row-{ix}"))
@@ -1141,80 +1180,27 @@ impl OtmApp {
                 window.focus(&this.focus);
                 cx.notify();
             }))
-            .children(r.cells.iter().zip(widths).enumerate().map(|(i, (c, w))| {
-                let last = i + 1 == widths.len();
-                let header = self.listing.headers.get(i);
-                let numeric = header.is_some_and(|h| h.numeric);
-                let lead = i == 0 && self.listing.icons;
-                let full = c.to_string();
-                // The last column fills what the list has left after the others and the actions.
-                let room = if last {
-                    let list = f32::from(
-                        self.listing_scroll
-                            .0
-                            .borrow()
-                            .base_handle
-                            .bounds()
-                            .size
-                            .width,
-                    );
-                    let others: f32 = widths[..i].iter().sum();
-                    let actions = if has_actions { ACTIONS_W } else { 0. };
-                    if list > 0. {
-                        list - others - actions - 24.
-                    } else {
-                        *w
-                    }
-                } else {
-                    *w
-                } - 16.
-                    - if lead { LIST_ICON_LEAD } else { 0. };
-                // Paths and endpoints keep their end; everything else ends in "…".
-                let shown = if header
-                    .is_some_and(|h| matches!(h.title, "File" | "Location" | "Endpoint"))
-                {
-                    crate::ui::ellipsize_middle(cx, full.clone(), room, self.text_px())
-                } else {
-                    crate::ui::ellipsize(cx, full.clone(), room, self.text_px())
-                };
-                let cut = shown != full;
-                cell(last, *w)
-                    .id(("list-cell", ix * 16 + i))
-                    .whitespace_nowrap()
-                    .when(numeric, |d| d.text_right().font_family("Menlo").text_xs())
-                    .when(i > 0 && !selected, |d| d.text_color(t.text_dim))
-                    .when(lead, |d| {
-                        d.flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_1()
-                            .child(self.list_icon(r.icon.as_deref()))
-                    })
-                    .child(shown)
-                    .when(cut, |d| d.tooltip(crate::ui::tip(full)))
-            }))
-            .when(
-                self.listing.rows.iter().any(|r| !r.actions.is_empty()),
-                |d| {
-                    d.child(
-                        div()
-                            .flex_shrink_0()
-                            .w(px(ACTIONS_W))
-                            .flex()
-                            .flex_row()
-                            .gap_1()
-                            .px_2()
-                            .children(r.actions.iter().enumerate().map(|(i, b)| {
-                                self.action_button(
-                                    t,
-                                    (SharedString::from(format!("act-{ix}")), i),
-                                    b,
-                                    cx,
-                                )
-                            })),
-                    )
-                },
-            )
+            .children(cells)
+            .child(div().flex_1().min_w_0())
+            .when(has_actions, |d| {
+                d.child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(ACTIONS_W))
+                        .flex()
+                        .flex_row()
+                        .gap_1()
+                        .px_2()
+                        .children(r.actions.iter().enumerate().map(|(i, b)| {
+                            self.action_button(
+                                t,
+                                (SharedString::from(format!("act-{ix}")), i),
+                                b,
+                                cx,
+                            )
+                        })),
+                )
+            })
             .into_any_element()
     }
 
@@ -1228,6 +1214,8 @@ impl OtmApp {
             .unwrap_or(1)
             .max(1);
         use crate::tables::{SortKey as K, sort_items};
+        self.ensure_table("folders", &FOLDER_COLS);
+        self.ensure_table("scans", &SCAN_COLS);
         let mut folders: Vec<sysops::FolderSize> = latest
             .iter()
             .flat_map(|s| s.items.iter().cloned())
@@ -1259,6 +1247,157 @@ impl OtmApp {
                 _ => s.2 as f64,
             })
         });
+        let folder_rows: Vec<AnyElement> = folders
+            .into_iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let path = item.path.clone();
+                let icon = icons::path_key(&item.path);
+                let room = self.col_width("folders", 0) - 16. - LIST_ICON_LEAD;
+                let cells = vec![
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .child(self.list_icon(Some(&icon)))
+                        .child(ui::ellipsize(cx, item.path.clone(), room, self.text_px())),
+                    div().child(fmt_size(item.bytes)),
+                    div().w_full().child(ui::meter(
+                        t,
+                        item.bytes as f32 / max as f32 * 100.,
+                        t.accent.into(),
+                    )),
+                ];
+                div()
+                    .id(("folder", i))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .py_1()
+                    .cursor_pointer()
+                    .hover(|h| h.bg(t.glass_hover))
+                    .rounded(px(6.))
+                    .children(self.lay_out("folders", cells))
+                    .child(div().flex_1().min_w_0())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.perform(Action::Reveal(path.clone()), cx)
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+        let scan_rows: Vec<AnyElement> = scans
+            .into_iter()
+            .map(|(at, folders, total)| {
+                let ago = sysops::now_secs().saturating_sub(at);
+                let cells = vec![
+                    div().child(format!("{} ago", fmt_duration(ago))),
+                    div().text_color(t.text_dim).child(folders.to_string()),
+                    div().text_color(t.text_dim).child(fmt_size(total)),
+                ];
+                div()
+                    .flex()
+                    .flex_row()
+                    .text_sm()
+                    .children(self.lay_out("scans", cells))
+                    .child(div().flex_1().min_w_0())
+                    .into_any_element()
+            })
+            .collect();
+        let folders_card = card(t)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Largest folders in your home"),
+                    )
+                    .when(latest.is_some(), |d| {
+                        d.child(self.columns_button(t, "folders", cx).mr_2())
+                    })
+                    .child(
+                        ui::pill(
+                            t,
+                            "scan",
+                            if self.scanning {
+                                "Scanning…"
+                            } else {
+                                "Scan now"
+                            },
+                            self.scanning,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.scanning {
+                                return;
+                            }
+                            this.scanning = true;
+                            this.run_bg(cx, sysops::scan_home, |app, scans, _| {
+                                app.scanning = false;
+                                app.scans = scans;
+                            });
+                        })),
+                    ),
+            )
+            .when(latest.is_none(), |d| {
+                d.child(
+                    div()
+                        .text_sm()
+                        .text_color(t.text_dim)
+                        .child("No scan yet. Press Scan now."),
+                )
+            })
+            .when(latest.is_some(), |d| {
+                d.child(
+                    self.scroll_x(
+                        t,
+                        ("folders-table", "folders-hbar", false),
+                        &self.folders_hscroll,
+                        self.table_content_width("folders"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(self.table_header(t, "folders", cx))
+                            .children(folder_rows),
+                        cx,
+                    ),
+                )
+            });
+        let scans_card = card(t)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Scan history"),
+                    )
+                    .when(!self.scans.is_empty(), |d| {
+                        d.child(self.columns_button(t, "scans", cx).mr_2())
+                    }),
+            )
+            .when(!self.scans.is_empty(), |d| {
+                d.child(
+                    self.scroll_x(
+                        t,
+                        ("scans-table", "scans-hbar", false),
+                        &self.scans_hscroll,
+                        self.table_content_width("scans"),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(self.table_header(t, "scans", cx))
+                            .children(scan_rows),
+                        cx,
+                    ),
+                )
+            });
         self.page_frame(
             t,
             "Disk Space",
@@ -1309,134 +1448,8 @@ impl OtmApp {
                                 .child(ui::meter(t, pct, t.load_color(pct)))
                         })),
                 )
-                .child(
-                    card(t)
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child("Largest folders in your home"),
-                                )
-                                .child(
-                                    ui::pill(
-                                        t,
-                                        "scan",
-                                        if self.scanning {
-                                            "Scanning…"
-                                        } else {
-                                            "Scan now"
-                                        },
-                                        self.scanning,
-                                    )
-                                    .on_click(cx.listener(
-                                        |this, _, _, cx| {
-                                            if this.scanning {
-                                                return;
-                                            }
-                                            this.scanning = true;
-                                            this.run_bg(cx, sysops::scan_home, |app, scans, _| {
-                                                app.scanning = false;
-                                                app.scans = scans;
-                                            });
-                                        },
-                                    )),
-                                ),
-                        )
-                        .when(latest.is_none(), |d| {
-                            d.child(
-                                div()
-                                    .text_sm()
-                                    .text_color(t.text_dim)
-                                    .child("No scan yet. Press Scan now."),
-                            )
-                        })
-                        .when(latest.is_some(), |d| {
-                            d.child(self.sort_header(t, "folders", &FOLDER_COLS, true, cx))
-                        })
-                        .children(folders.into_iter().enumerate().map(|(i, item)| {
-                            let path = item.path.clone();
-                            let icon = icons::path_key(&item.path);
-                            div()
-                                .id(("folder", i))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_3()
-                                .py_1()
-                                .cursor_pointer()
-                                .hover(|h| h.bg(t.glass_hover))
-                                .rounded(px(6.))
-                                .child(
-                                    cell(false, FOLDER_COLS[0].width)
-                                        .text_sm()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap_1()
-                                        .child(self.list_icon(Some(&icon)))
-                                        .child(ui::ellipsize(
-                                            cx,
-                                            item.path.clone(),
-                                            FOLDER_COLS[0].width - 16. - LIST_ICON_LEAD,
-                                            self.text_px(),
-                                        )),
-                                )
-                                .child(
-                                    cell(false, FOLDER_COLS[1].width)
-                                        .text_sm()
-                                        .text_right()
-                                        .child(fmt_size(item.bytes)),
-                                )
-                                .child(cell(true, 0.).child(ui::meter(
-                                    t,
-                                    item.bytes as f32 / max as f32 * 100.,
-                                    t.accent.into(),
-                                )))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.perform(Action::Reveal(path.clone()), cx)
-                                }))
-                        })),
-                )
-                .child(
-                    card(t)
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Scan history"),
-                        )
-                        .when(!self.scans.is_empty(), |d| {
-                            d.child(self.sort_header(t, "scans", &SCAN_COLS, true, cx))
-                        })
-                        .children(scans.into_iter().map(|(at, folders, total)| {
-                            let ago = sysops::now_secs().saturating_sub(at);
-                            div()
-                                .flex()
-                                .flex_row()
-                                .text_sm()
-                                .child(
-                                    cell(false, SCAN_COLS[0].width)
-                                        .text_right()
-                                        .child(format!("{} ago", fmt_duration(ago))),
-                                )
-                                .child(
-                                    cell(false, SCAN_COLS[1].width)
-                                        .text_right()
-                                        .text_color(t.text_dim)
-                                        .child(folders.to_string()),
-                                )
-                                .child(
-                                    cell(true, 0.)
-                                        .text_right()
-                                        .text_color(t.text_dim)
-                                        .child(fmt_size(total)),
-                                )
-                        })),
-                ),
+                .child(folders_card)
+                .child(scans_card),
             cx,
         ))
     }
@@ -1989,7 +2002,7 @@ fn holiday_modes() -> Vec<(&'static str, HolidayMode)> {
     .collect()
 }
 
-const ACTIONS_W: f32 = 230.;
+pub(crate) const ACTIONS_W: f32 = 230.;
 
 /// A table cell: fixed width, except the last column which takes the remaining space.
 const FOLDER_COLS: [Col; 3] = [

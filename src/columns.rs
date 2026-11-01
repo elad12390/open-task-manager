@@ -248,15 +248,6 @@ impl TableLayout {
         }
     }
 
-    pub fn shift(&mut self, id: ColumnId, delta: isize) {
-        if let Some(i) = self.columns.iter().position(|c| c.id == id) {
-            let j = i as isize + delta;
-            if j >= 0 && (j as usize) < self.columns.len() {
-                self.columns.swap(i, j as usize);
-            }
-        }
-    }
-
     pub fn set_width(&mut self, index: usize, width: f32) {
         if let Some(c) = self.columns.get_mut(index) {
             c.width = width.clamp(48., 800.);

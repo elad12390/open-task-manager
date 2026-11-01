@@ -34,6 +34,8 @@ mod sysops;
 #[cfg(test)]
 mod table_icons_tests;
 #[cfg(test)]
+mod table_layout_tests;
+#[cfg(test)]
 mod table_ux_tests;
 mod tables;
 mod theme;

@@ -476,6 +476,7 @@ impl OtmApp {
         .on_action(cx.listener(|this, _: &ToggleColumnsMenu, _, cx| {
             this.page = Page::Processes;
             this.column_menu = !this.column_menu;
+            this.column_menu_table = "processes";
             cx.notify();
         }))
         .on_action(cx.listener(|this, _: &AppearanceSystem, _, cx| this.set_appearance(Appearance::System, cx)))
