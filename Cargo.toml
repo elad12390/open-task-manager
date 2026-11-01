@@ -24,3 +24,8 @@ debug = 0
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# xattr 0.2.3 (pulled in by gpui's HTTP client) uses libc::ENOATTR, which current libc no longer
+# defines on Linux. patches/xattr is 0.2.3 with that one constant fixed.
+[patch.crates-io]
+xattr = { path = "patches/xattr" }
