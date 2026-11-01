@@ -7,7 +7,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev mesa-vulkan-drivers \
         libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libfontconfig-dev libfreetype-dev libzstd-dev \
         libssl-dev libasound2-dev libdbus-1-dev \
-        xvfb weston xdotool imagemagick dbus-x11 procps iproute2 systemd \
+        xvfb xauth weston xdotool imagemagick dbus-x11 procps iproute2 systemd \
     && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt clippy
 WORKDIR /src
