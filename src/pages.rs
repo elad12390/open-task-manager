@@ -228,7 +228,7 @@ impl OtmApp {
                 return;
             }
             Action::Reveal(p) => {
-                sysops::reveal_in_finder(&p);
+                sysops::reveal(&p);
                 return;
             }
             _ => {}
@@ -648,10 +648,11 @@ impl OtmApp {
                                 btn("Cancel", Action::CancelTrash),
                             ]
                         } else {
-                            vec![
-                                btn("Reveal", Action::Reveal(path.clone())),
-                                danger("Uninstall", Action::AskTrash(a.path.clone())),
-                            ]
+                            let mut actions = vec![btn("Reveal", Action::Reveal(path.clone()))];
+                            if crate::platform::CAPS.can_uninstall {
+                                actions.push(danger("Uninstall", Action::AskTrash(a.path.clone())));
+                            }
+                            actions
                         };
                         row(
                             path.clone(),

@@ -3,18 +3,19 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use gpui::{
-    Entity, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
-    VisualTestContext, point, px,
-};
+use gpui::{Entity, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext, VisualTestContext};
+#[cfg(target_os = "macos")]
+use gpui::{Modifiers, point, px};
 
 use crate::{
     app::OtmApp,
     columns::{ColumnId, GroupBy},
     processes::Row,
-    scrollbar, ui,
-    ui_tests::{ENV_LOCK, bounds, center, click, drag, pick_group},
+    ui,
+    ui_tests::{ENV_LOCK, bounds, center, click, pick_group},
 };
+#[cfg(target_os = "macos")]
+use crate::{scrollbar, ui_tests::drag};
 
 fn data_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("otm-{name}-{}", std::process::id()));
@@ -57,6 +58,7 @@ fn double_click(cx: &mut VisualTestContext, selector: &'static str) {
 /// Double-clicking the Name divider fits the column to the longest name: every name shows in full,
 /// the column is not much wider than that, and the double click leaves no resize drag behind.
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn double_click_divider_fits_the_column(cx: &mut TestAppContext) {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = data_dir("ux-fit");
@@ -168,6 +170,7 @@ fn tree_column_fit_leaves_room_for_the_indent(cx: &mut TestAppContext) {
 /// The process list has a thin bar that appears because the list overflows. Clicking the track
 /// below the thumb pages down, and dragging the thumb scrolls the list in step with the pointer.
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn process_list_scrollbar_pages_and_drags(cx: &mut TestAppContext) {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = data_dir("ux-scroll");

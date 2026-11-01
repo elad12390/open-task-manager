@@ -2,8 +2,8 @@
 
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent,
-    MouseButton, Render, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, div, point, prelude::*, px, rgba, size,
+    MouseButton, Render, Subscription, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions, div, point, prelude::*, px, rgba, size,
 };
 
 use crate::{
@@ -220,18 +220,15 @@ impl Popout {
                 return;
             }
             let bounds = Bounds::new(point(px(80.), px(80.)), size(px(300.), px(150.)));
+            let chrome = crate::platform::window_chrome(crate::platform::WindowRole::Popout);
             let handle = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Popout".into()),
-                        appears_transparent: true,
-                        traffic_light_position: Some(point(px(-40.), px(-40.))),
-                    }),
+                    titlebar: chrome.titlebar,
                     kind: WindowKind::PopUp,
                     is_resizable: false,
                     is_minimizable: false,
-                    window_background: WindowBackgroundAppearance::Blurred,
+                    window_background: chrome.background,
                     focus: false,
                     ..Default::default()
                 },

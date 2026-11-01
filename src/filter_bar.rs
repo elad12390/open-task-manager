@@ -337,19 +337,21 @@ impl OtmApp {
             )
     }
 
-    fn filter_placeholder(&self, focused: bool) -> &'static str {
-        match (self.page, focused) {
-            (Page::Processes, true) => "Name, app, user, category… or cpu>5, mem>1g",
-            (Page::Processes, false) => "Filter processes  ⌘F",
-            (_, true) => "Pick a value",
-            (Page::Users, false) => "Filter users  ⌘F",
-            (Page::Startup, false) => "Filter startup items  ⌘F",
-            (Page::Services, false) => "Filter services  ⌘F",
-            (Page::Connections, false) => "Filter connections  ⌘F",
-            (Page::Apps, false) => "Filter apps  ⌘F",
-            (Page::Disk, false) => "Filter folders  ⌘F",
-            _ => "Filter  ⌘F",
-        }
+    fn filter_placeholder(&self, focused: bool) -> String {
+        let find = crate::platform::CAPS.mod_label;
+        let what = match (self.page, focused) {
+            (Page::Processes, true) => return "Name, app, user, category… or cpu>5, mem>1g".into(),
+            (_, true) => return "Pick a value".into(),
+            (Page::Processes, false) => "processes",
+            (Page::Users, false) => "users",
+            (Page::Startup, false) => "startup items",
+            (Page::Services, false) => "services",
+            (Page::Connections, false) => "connections",
+            (Page::Apps, false) => "apps",
+            (Page::Disk, false) => "folders",
+            _ => return format!("Filter  {find}F"),
+        };
+        format!("Filter {what}  {find}F")
     }
 
     /// The filter field above a listing or Disk Space table.

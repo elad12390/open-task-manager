@@ -27,6 +27,9 @@ mod overview;
 #[cfg(test)]
 mod page_scroll_tests;
 mod pages;
+mod platform;
+#[cfg(test)]
+mod platform_split_tests;
 mod processes;
 mod recorder;
 mod scrollbar;
@@ -49,8 +52,7 @@ mod ui_tests;
 mod windows;
 
 use gpui::{
-    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
-    WindowKind, WindowOptions, point, prelude::*, px, size,
+    App, Application, Bounds, WindowBounds, WindowKind, WindowOptions, prelude::*, px, size,
 };
 
 fn main() {
@@ -80,15 +82,12 @@ fn main() {
         .run(move |cx: &mut App| {
             menus::install(cx);
             let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
+            let chrome = platform::window_chrome(platform::WindowRole::Main);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Open Task Manager".into()),
-                        appears_transparent: true,
-                        traffic_light_position: Some(point(px(26.), px(26.))),
-                    }),
-                    window_background: WindowBackgroundAppearance::Blurred,
+                    titlebar: chrome.titlebar,
+                    window_background: chrome.background,
                     window_min_size: Some(size(px(860.), px(520.))),
                     app_id: Some("org.opentaskmanager.native".into()),
                     focus: !background,
