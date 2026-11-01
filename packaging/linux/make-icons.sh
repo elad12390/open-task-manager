@@ -7,7 +7,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 source_png="$root/assets/AppIcon.png"
 theme="$root/packaging/linux/icons/hicolor"
-app_id=io.github.elad12390.open_task_manager
+app_id=io.github.elad12390.open_task_manager.OpenTaskManager
 
 if command -v magick >/dev/null; then
   convert=(magick)

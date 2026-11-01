@@ -46,7 +46,7 @@ open it and drag **Open Task Manager** into **Applications**. The app is a unive
 ### Linux
 
 ```sh
-flatpak install flathub io.github.elad12390.open_task_manager   # once listed on Flathub
+flatpak install flathub io.github.elad12390.open_task_manager.OpenTaskManager   # once listed on Flathub
 ```
 
 Or download from the [latest release](https://github.com/elad12390/open-task-manager/releases/latest):

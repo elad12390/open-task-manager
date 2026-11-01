@@ -36,7 +36,7 @@ pub use startup::{startup_items, toggle_startup};
 pub const TOOLS: &str = "Command-line & Other";
 
 /// The Flatpak application ID: the window's Wayland app id must equal the desktop file's name to get its icon.
-pub const APP_ID: &str = "io.github.elad12390.open_task_manager";
+pub const APP_ID: &str = "io.github.elad12390.open_task_manager.OpenTaskManager";
 
 pub const CAPS: Caps = Caps {
     system_group: crate::categories::OS_OWNER,

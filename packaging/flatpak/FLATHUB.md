@@ -1,8 +1,8 @@
 # Flathub submission kit
 
-App ID `io.github.elad12390.open_task_manager`. The files for Flathub are:
+App ID `io.github.elad12390.open_task_manager.OpenTaskManager`. The files for Flathub are:
 
-- `io.github.elad12390.open_task_manager.yml`: the manifest (runtime `org.freedesktop.Platform` 26.08, Rust SDK extension).
+- `io.github.elad12390.open_task_manager.OpenTaskManager.yml`: the manifest (runtime `org.freedesktop.Platform` 26.08, Rust SDK extension).
 - `cargo-sources.json`: every crate in `Cargo.lock`, vendored so the build runs offline. Regenerate it with `generate-cargo-sources.sh` after any `Cargo.lock` change.
 - `flathub.json`: the architectures (`x86_64`, `aarch64`).
 - `../linux/`: the desktop file, the MetaInfo file, the icons and the release notes script.
@@ -12,9 +12,9 @@ App ID `io.github.elad12390.open_task_manager`. The files for Flathub are:
 `build.sh` runs in a privileged flatpak-builder container (`ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08`) on Colima or Docker. It:
 
 1. builds the manifest from this checkout (`type: dir`) into the named volume `otm-flatpak`;
-2. writes the bundle to `dist/io.github.elad12390.open_task_manager.flatpak`;
+2. writes the bundle to `dist/io.github.elad12390.open_task_manager.OpenTaskManager.flatpak`;
 3. runs `flatpak-builder-lint manifest`, `appstream` and `repo`;
-4. installs the bundle and runs `flatpak run --command=otm io.github.elad12390.open_task_manager --selftest`.
+4. installs the bundle and runs `flatpak run --command=otm io.github.elad12390.open_task_manager.OpenTaskManager --selftest`.
 
 ```sh
 packaging/flatpak/build.sh
@@ -52,11 +52,11 @@ Follow the [Flathub submission guide](https://docs.flathub.org/docs/for-app-auth
 
    ```sh
    git clone --branch=new-pr https://github.com/<your-user>/flathub.git && cd flathub
-   git checkout -b io.github.elad12390.open_task_manager-submission new-pr
+   git checkout -b io.github.elad12390.open_task_manager.OpenTaskManager-submission new-pr
    ```
 
-3. Copy into the root of that branch: `io.github.elad12390.open_task_manager.yml` (with the git source), `cargo-sources.json` and `flathub.json`. Fill in the PR template that the branch contains; do not delete it.
-4. Commit and push, then open a pull request **against the `new-pr` base branch** (not `master`) titled `Add io.github.elad12390.open_task_manager`.
+3. Copy into the root of that branch: `io.github.elad12390.open_task_manager.OpenTaskManager.yml` (with the git source), `cargo-sources.json` and `flathub.json`. Fill in the PR template that the branch contains; do not delete it.
+4. Commit and push, then open a pull request **against the `new-pr` base branch** (not `master`) titled `Add io.github.elad12390.open_task_manager.OpenTaskManager`.
 5. Reviewers may ask for changes. Answer them on the same PR; do not close it. Once the review comments are resolved, a maintainer can start a test build with `bot, build`.
 
 The GitHub account that owns the `io.github.elad12390` ID must be `elad12390`. Flathub checks ownership against that account.
@@ -104,9 +104,12 @@ from the host through `flatpak-spawn --host`.
   exceptions case by case in the flatpak-builder-lint exceptions file; the exception request has to explain
   this permission. CI lints with `lint-exceptions.json`, which accepts only this finding, so any other lint error
   still fails the release.
-- The app ID's last part is `open_task_manager` because Flathub checks ownership by mapping
-  `io.github.elad12390.open_task_manager` to https://github.com/elad12390/open-task-manager (underscores become
-  dashes); `OpenTaskManager` would point at a repository that doesn't exist.
+- The app ID has five parts because Flathub checks ownership by turning an `io.github` ID into a repository
+  URL, and only turns underscores into dashes when the repository part is followed by another part (the
+  linter's `get_proj_url`). `io.github.elad12390.open_task_manager.OpenTaskManager` maps to
+  https://github.com/elad12390/open-task-manager; the four-part `io.github.elad12390.open_task_manager` would map
+  to `.../open_task_manager` and `io.github.elad12390.OpenTaskManager` to `.../opentaskmanager`, neither of which
+  exists.
 - The release workflow builds both bundles (x86_64 and aarch64) with flatpak-builder on GitHub's runners and
   install-tests each in a clean Fedora container; a Flathub test build (`bot, build`) is still the final word.
 

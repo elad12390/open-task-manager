@@ -5,7 +5,7 @@
 set -euo pipefail
 
 BUNDLE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-APP_ID="io.github.elad12390.open_task_manager"
+APP_ID="io.github.elad12390.open_task_manager.OpenTaskManager"
 cd "$(dirname "$0")/.."
 
 docker run --rm --privileged --name "otm-flatpak-test-$$" \
