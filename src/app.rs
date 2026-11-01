@@ -143,6 +143,11 @@ pub struct OtmApp {
     /// set from elsewhere keeps the caret at its end.
     pub caret_back: usize,
     pub collapsed: HashSet<String>,
+    /// Folds made while a filter is active: everything starts open, and this is reset whenever the
+    /// filter changes (see `folds`).
+    pub filter_collapsed: HashSet<String>,
+    /// The processes the active filter shows (matches and their ancestors); `None` without a filter.
+    pub scope: Option<HashSet<u32>>,
     pub rows: Rc<Vec<Row>>,
     pub resizing: Option<Resize>,
     pub column_menu: bool,
@@ -163,8 +168,8 @@ pub struct OtmApp {
     pub selected: Option<u32>,
     /// Keyboard cursor: a process or a group row.
     pub cursor: Option<crate::processes::RowId>,
-    /// Processes selected with the cursor (click, ⌘-click, Shift-click, Shift-arrows, ⌘A).
-    pub selection: HashSet<u32>,
+    /// Rows selected with the cursor, processes and groups alike (click, ⌘-click, Shift-click, Shift-arrows, ⌘A).
+    pub selection: HashSet<crate::processes::RowId>,
     /// Where a Shift-click or Shift-arrow range starts.
     pub anchor: Option<crate::processes::RowId>,
     /// Listing pages: the selected rows (by `ListRow::key`), their cursor and range anchor.
@@ -360,6 +365,8 @@ impl OtmApp {
             match_count: 0,
             caret_back: 0,
             collapsed: HashSet::new(),
+            filter_collapsed: HashSet::new(),
+            scope: None,
             rows: Rc::new(Vec::new()),
             resizing: None,
             column_menu: false,
@@ -459,6 +466,7 @@ impl OtmApp {
 
     pub fn query_changed(&mut self) {
         if self.page == Page::Processes {
+            self.filter_collapsed.clear();
             self.rebuild_rows();
         } else {
             self.rebuild_listing();
@@ -474,6 +482,26 @@ impl OtmApp {
             }
             cx.stop_propagation();
             return;
+        }
+        // With the suggestions panel closed or empty, ↑↓ / PageUp / PageDown / ⏎ hand the keyboard
+        // to the table. The query and chips stay; typing a character brings the field back.
+        let panel_open = self.suggest_open && !self.suggestions().is_empty();
+        if self.filter_focused
+            && !panel_open
+            && !k.modifiers.platform
+            && !k.modifiers.control
+            && !k.modifiers.alt
+            && matches!(
+                k.key.as_str(),
+                "up" | "down" | "pageup" | "pagedown" | "enter"
+            )
+        {
+            self.blur_filter();
+            if k.key == "enter" {
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
         }
         // The suggestions panel takes ↑↓, ⏎/⇥ and Esc while it is open.
         if self.page.filterable()
@@ -535,10 +563,6 @@ impl OtmApp {
                     self.caret_back = 0;
                     true
                 }
-                ("down", false) if self.page.filterable() && !self.suggest_open => {
-                    self.suggest_open = true;
-                    true
-                }
                 _ => false,
             };
             if handled {
@@ -560,10 +584,8 @@ impl OtmApp {
                 ("pagedown", _) => Some(Nav::PageDown),
                 ("left", false) => Some(Nav::Left),
                 ("right", false) => Some(Nav::Right),
-                // Space types into the filter once you have started typing one.
-                ("space", false) if self.query.is_empty() && !self.filter_focused => {
-                    Some(Nav::Toggle)
-                }
+                // Space types into the filter while the field has focus.
+                ("space", false) if !self.filter_focused => Some(Nav::Toggle),
                 _ => None,
             };
             if let Some(nav) = nav {

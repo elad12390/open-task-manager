@@ -401,12 +401,8 @@ pub fn run() -> i32 {
         ),
     );
     let me = std::process::id();
-    let filtered = build_rows(
-        &snap.processes,
-        &layout,
-        "otm",
-        &[crate::processes::node_key(1)].into(),
-    );
+    // A filter starts with every branch open (its own fold state, see `OtmApp::folds`).
+    let filtered = build_rows(&snap.processes, &layout, "otm", &HashSet::new());
     let shown: Vec<u32> = filtered
         .iter()
         .filter_map(|row| match row {
@@ -417,7 +413,10 @@ pub fn run() -> i32 {
     r.check(
         "filter keeps ancestors",
         shown.contains(&me) && shown.contains(&1),
-        format!("filter \"otm\" shows {} rows incl. this process {me} and launchd, even with launchd collapsed", shown.len()),
+        format!(
+            "filter \"otm\" shows {} rows incl. this process {me} and launchd",
+            shown.len()
+        ),
     );
     // Category grouping: macOS (sections) / Apps (per app) / Command-line & Other.
     layout.group_by = GroupBy::Category;

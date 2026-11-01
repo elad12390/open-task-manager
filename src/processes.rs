@@ -169,7 +169,6 @@ fn tree_rows(
     layout: &TableLayout,
     base_depth: usize,
     collapsed: &HashSet<String>,
-    expand_all: bool,
     split: Option<&Split>,
     rows: &mut Vec<Row>,
 ) {
@@ -250,7 +249,7 @@ fn tree_rows(
                 let (label, note) = SPLIT_SECTIONS[part];
                 let key = format!("split:{part}");
                 let (count, cpu, memory) = split.map(|s| s.totals[part]).unwrap_or_default();
-                let folded = !expand_all && collapsed.contains(&key);
+                let folded = collapsed.contains(&key);
                 rows.push(Row::Group {
                     depth,
                     note,
@@ -306,7 +305,7 @@ fn tree_rows(
                 let (count, cpu, memory) = split
                     .and_then(|s| s.sub_totals.get(&(part, name.clone())).copied())
                     .unwrap_or_default();
-                let folded = !expand_all && collapsed.contains(&key);
+                let folded = collapsed.contains(&key);
                 rows.push(Row::Group {
                     depth,
                     note: None,
@@ -326,7 +325,7 @@ fn tree_rows(
                     continue;
                 }
                 emitted[i] = true;
-                let is_collapsed = !expand_all && collapsed.contains(&node_key(list[i].pid));
+                let is_collapsed = collapsed.contains(&node_key(list[i].pid));
                 let total = t(i);
                 rows.push(Row::Process {
                     info: list[i].clone(),
@@ -445,6 +444,26 @@ pub fn build_rows(
     )
 }
 
+/// The processes a filter shows: its matches plus every ancestor, so each match stays in place in
+/// the tree.
+pub fn filter_scope(processes: &[ProcessInfo], filter: &Filter) -> HashSet<u32> {
+    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|p| (p.pid, p)).collect();
+    let mut keep: HashSet<u32> = HashSet::new();
+    for p in processes.iter().filter(|p| filter.matches(p)) {
+        let mut cur = Some(p);
+        while let Some(c) = cur {
+            if !keep.insert(c.pid) {
+                break;
+            }
+            cur = c
+                .ppid
+                .filter(|&pp| pp != c.pid)
+                .and_then(|pp| by_pid.get(&pp).copied());
+        }
+    }
+    keep
+}
+
 /// [`build_rows`] with a full filter: free text plus chips.
 pub fn build_rows_filtered(
     processes: &[ProcessInfo],
@@ -478,31 +497,16 @@ pub fn build_rows_filtered(
             .collect();
     }
 
-    // Keep the matches plus every ancestor, so each match is shown in place in the tree.
-    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|p| (p.pid, p)).collect();
-    let mut keep: HashSet<u32> = HashSet::new();
-    for p in processes.iter().filter(|p| filter.matches(p)) {
-        let mut cur = Some(p);
-        while let Some(c) = cur {
-            if !keep.insert(c.pid) {
-                break;
-            }
-            cur = c
-                .ppid
-                .filter(|&pp| pp != c.pid)
-                .and_then(|pp| by_pid.get(&pp).copied());
-        }
-    }
+    let keep = filter_scope(processes, filter);
     let list: Vec<ProcessInfo> = processes
         .iter()
         .filter(|p| keep.contains(&p.pid))
         .cloned()
         .collect();
-    let expand_all = filter.is_active();
     let mut rows = Vec::new();
 
     if layout.group_by == GroupBy::Category {
-        category_rows(processes, list, layout, collapsed, expand_all, &mut rows);
+        category_rows(processes, list, layout, collapsed, &mut rows);
         return rows;
     }
 
@@ -510,16 +514,7 @@ pub fn build_rows_filtered(
         // Totals cover the whole tree, so filtering or folding never shrinks a branch's sum.
         let totals = subtree_totals(processes);
         let split = split_info(processes, &totals);
-        tree_rows(
-            list,
-            &totals,
-            layout,
-            0,
-            collapsed,
-            expand_all,
-            Some(&split),
-            &mut rows,
-        );
+        tree_rows(list, &totals, layout, 0, collapsed, Some(&split), &mut rows);
         return rows;
     }
 
@@ -574,7 +569,7 @@ pub fn build_rows_filtered(
     }
     for (key, cpu, memory) in order {
         let items = groups.remove(&key).unwrap_or_default();
-        let is_collapsed = !expand_all && collapsed.contains(&key);
+        let is_collapsed = collapsed.contains(&key);
         let totals = (!is_collapsed).then(|| subtree_totals(&everyone[&key]));
         let note =
             (by_app && key == crate::categories::OS_OWNER).then_some("built into the system");
@@ -590,9 +585,7 @@ pub fn build_rows_filtered(
             key,
         });
         if let Some(totals) = totals {
-            tree_rows(
-                items, &totals, layout, 1, collapsed, expand_all, None, &mut rows,
-            );
+            tree_rows(items, &totals, layout, 1, collapsed, None, &mut rows);
         }
     }
     rows
@@ -606,7 +599,6 @@ fn category_rows(
     list: Vec<ProcessInfo>,
     layout: &TableLayout,
     collapsed: &HashSet<String>,
-    expand_all: bool,
     rows: &mut Vec<Row>,
 ) {
     use crate::categories::{MACOS, TOPS, categorize};
@@ -646,7 +638,7 @@ fn category_rows(
         let everything: Vec<ProcessInfo> = all[top].values().flatten().cloned().collect();
         let (cpu, memory) = sums(&everything);
         let key = format!("cat:{top}");
-        let top_collapsed = !expand_all && collapsed.contains(&key);
+        let top_collapsed = collapsed.contains(&key);
         rows.push(Row::Group {
             depth: 0,
             note: (top == MACOS).then_some("built into the system"),
@@ -679,7 +671,7 @@ fn category_rows(
         let mut sections = sections;
         for (sec, cpu, memory, count) in order {
             let key = format!("cat:{top}/{sec}");
-            let sec_collapsed = !expand_all && collapsed.contains(&key);
+            let sec_collapsed = collapsed.contains(&key);
             rows.push(Row::Group {
                 depth: 1,
                 note: None,
@@ -693,7 +685,7 @@ fn category_rows(
             if !sec_collapsed {
                 let totals = subtree_totals(&all[top][&sec]);
                 let items = sections.remove(&sec).unwrap_or_default();
-                tree_rows(items, &totals, layout, 2, collapsed, expand_all, None, rows);
+                tree_rows(items, &totals, layout, 2, collapsed, None, rows);
             }
         }
     }
@@ -726,7 +718,7 @@ pub enum Nav {
 }
 
 /// A row the keyboard cursor can sit on: a process, or a group/section header.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RowId {
     Pid(u32),
     Group(String),
@@ -849,18 +841,40 @@ impl OtmApp {
     /// completely, like Option-clicking a folder's triangle in Finder.
     pub fn toggle_branch(&mut self, pid: u32, all: bool) {
         let key = node_key(pid);
-        if self.collapsed.contains(&key) {
+        if self.folds().contains(&key) {
             if all {
                 return self.unfold_all(pid);
             }
-            self.collapsed.remove(&key);
+            self.folds_mut().remove(&key);
         } else {
-            let below = branch_descendants(&self.snapshot.processes, pid);
-            self.collapsed.insert(key);
-            self.collapsed.extend(below.into_iter().map(node_key));
-            self.collapsed.extend(self.launchd_groups(pid));
+            let below: Vec<String> = branch_descendants(&self.snapshot.processes, pid)
+                .into_iter()
+                .map(node_key)
+                .chain(self.launchd_groups(pid))
+                .collect();
+            let folds = self.folds_mut();
+            folds.insert(key);
+            folds.extend(below);
         }
         self.rebuild_rows();
+    }
+
+    /// The fold state in use: while a filter is active it is `filter_collapsed`, which starts
+    /// open and is reset whenever the filter changes.
+    pub fn folds(&self) -> &HashSet<String> {
+        if self.filter_active() {
+            &self.filter_collapsed
+        } else {
+            &self.collapsed
+        }
+    }
+
+    pub fn folds_mut(&mut self) -> &mut HashSet<String> {
+        if self.filter_active() {
+            &mut self.filter_collapsed
+        } else {
+            &mut self.collapsed
+        }
     }
 
     /// The section and sub-group keys under launchd in the Tree view (empty for other processes).
@@ -881,12 +895,16 @@ impl OtmApp {
 
     /// Open a branch and every branch under it.
     pub fn unfold_all(&mut self, pid: u32) {
-        self.collapsed.remove(&node_key(pid));
-        for d in branch_descendants(&self.snapshot.processes, pid) {
-            self.collapsed.remove(&node_key(d));
-        }
-        for k in self.launchd_groups(pid) {
-            self.collapsed.remove(&k);
+        let mut open = vec![node_key(pid)];
+        open.extend(
+            branch_descendants(&self.snapshot.processes, pid)
+                .into_iter()
+                .map(node_key),
+        );
+        open.extend(self.launchd_groups(pid));
+        let folds = self.folds_mut();
+        for k in open {
+            folds.remove(&k);
         }
         self.rebuild_rows();
     }
@@ -990,56 +1008,111 @@ impl OtmApp {
     /// folds everything inside it, unfolding opens one level, and `all` (Option) opens everything.
     pub fn toggle_group(&mut self, key: &str, all: bool) {
         let inside = self.group_contents(key);
-        if self.collapsed.contains(key) {
-            self.collapsed.remove(key);
+        let folds = self.folds_mut();
+        if folds.contains(key) {
+            folds.remove(key);
             if all {
                 for k in &inside {
-                    self.collapsed.remove(k);
+                    folds.remove(k);
                 }
             }
         } else if all {
             // Option on an open group: open everything inside it.
             for k in &inside {
-                self.collapsed.remove(k);
+                folds.remove(k);
             }
         } else {
-            self.collapsed.insert(key.to_string());
-            self.collapsed.extend(inside);
+            folds.insert(key.to_string());
+            folds.extend(inside);
         }
         self.rebuild_rows();
     }
 
-    /// Put the cursor on a row (process or group) and select just that row. A group selects no
-    /// process, so it clears the selection.
+    /// Put the cursor on a row (process or group) and select just that row.
     pub fn set_cursor(&mut self, id: Option<RowId>) {
         self.selected = match &id {
             Some(RowId::Pid(pid)) => Some(*pid),
             _ => None,
         };
-        self.selection = self.selected.into_iter().collect();
+        self.selection = id.iter().cloned().collect();
         self.anchor = id.clone();
         self.cursor = id;
     }
 
-    /// Live refresh: processes that have exited leave the selection.
+    /// Live refresh: processes that have exited leave the selection, and a group leaves it once
+    /// it has no processes left. Group rows keep their key, so they stay selected across refreshes.
     pub fn drop_exited(&mut self) {
         let alive: HashSet<u32> = self.snapshot.processes.iter().map(|p| p.pid).collect();
-        self.selection.retain(|pid| alive.contains(pid));
+        let kept: Vec<RowId> = self
+            .selection
+            .iter()
+            .filter(|id| match id {
+                RowId::Pid(pid) => alive.contains(pid),
+                RowId::Group(key) => !self.group_pids(key).is_empty(),
+            })
+            .cloned()
+            .collect();
+        self.selection = kept.into_iter().collect();
         if self.selected.is_some_and(|pid| !alive.contains(&pid)) {
             self.selected = None;
         }
     }
 
-    /// The selected processes that are on screen, in list order. Actions apply to these, so a
-    /// filter or a collapsed branch never acts on rows the user cannot see.
+    /// Whether a process is one of macOS's own, which a selected macOS group or section never
+    /// quits (the same rule as the group menu).
+    fn is_system_group(&self, key: &str) -> bool {
+        key == crate::categories::OS_OWNER
+            || key.starts_with("split:0")
+            || key.starts_with("cat:macOS")
+    }
+
+    /// The processes a selection acts on: each selected process, and every process inside a selected
+    /// group (except macOS's own inside a macOS group). Limited to what the filter shows, in table
+    /// order, without duplicates.
     pub fn selected_pids(&self) -> Vec<u32> {
-        self.rows
+        self.selected_pids_and_skipped().0
+    }
+
+    /// [`selected_pids`](Self::selected_pids), and how many macOS processes a selected macOS group
+    /// left out.
+    pub fn selected_pids_and_skipped(&self) -> (Vec<u32>, usize) {
+        let mut chosen: HashSet<u32> = HashSet::new();
+        let mut skipped: HashSet<u32> = HashSet::new();
+        for id in &self.selection {
+            match id {
+                RowId::Pid(pid) => {
+                    chosen.insert(*pid);
+                }
+                RowId::Group(key) => {
+                    let system = self.is_system_group(key);
+                    for pid in self.group_pids(key) {
+                        if system {
+                            skipped.insert(pid);
+                        } else {
+                            chosen.insert(pid);
+                        }
+                    }
+                }
+            }
+        }
+        let shown = |pid: &u32| self.scope.as_ref().is_none_or(|s| s.contains(pid));
+        let mut seen: HashSet<u32> = HashSet::new();
+        let order = self
+            .rows
             .iter()
             .filter_map(|r| match r {
-                Row::Process { info, .. } if self.selection.contains(&info.pid) => Some(info.pid),
-                _ => None,
+                Row::Process { info, .. } => Some(info.pid),
+                Row::Group { .. } => None,
             })
-            .collect()
+            .chain(self.snapshot.processes.iter().map(|p| p.pid));
+        let pids = order
+            .filter(|pid| chosen.contains(pid) && shown(pid) && seen.insert(*pid))
+            .collect();
+        let skipped = skipped
+            .iter()
+            .filter(|pid| shown(pid) && !chosen.contains(pid))
+            .count();
+        (pids, skipped)
     }
 
     /// Tab-separated visible columns, one line per process, in the order given.
@@ -1057,29 +1130,61 @@ impl OtmApp {
             .join("\n")
     }
 
+    /// The selected rows that are on screen, in table order: one line each. A process is its
+    /// columns; a group is its label with its count, CPU and memory.
+    pub fn selection_lines(&self) -> String {
+        self.selected_rows()
+            .iter()
+            .map(|r| match r {
+                Row::Process { info, .. } => self.process_lines(&[info.pid]),
+                Row::Group {
+                    label,
+                    count,
+                    cpu,
+                    memory,
+                    ..
+                } => format!(
+                    "{label}\t{count} processes\t{cpu:.1}%\t{}",
+                    crate::metrics::fmt_bytes(*memory)
+                ),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The rows on screen that are selected, in table order.
+    pub fn selected_rows(&self) -> Vec<&Row> {
+        self.rows
+            .iter()
+            .filter(|r| self.selection.contains(&r.id()))
+            .collect()
+    }
+
     /// A click on a row: plain selects it, ⌘ (or Ctrl) toggles it, Shift selects the range from
-    /// the anchor. Group rows always just take the cursor.
+    /// the anchor. Process and group rows alike.
     pub fn click_row(&mut self, id: RowId, m: gpui::Modifiers) {
-        match id {
-            RowId::Pid(_) if m.shift => self.extend_selection(id),
-            RowId::Pid(_) if m.platform || m.control => self.toggle_selection(id),
-            _ => self.set_cursor(Some(id)),
+        if m.shift {
+            self.extend_selection(id);
+        } else if m.platform || m.control {
+            self.toggle_selection(id);
+        } else {
+            self.set_cursor(Some(id));
         }
     }
 
     fn toggle_selection(&mut self, id: RowId) {
-        let RowId::Pid(pid) = id else {
-            return;
-        };
-        if !self.selection.remove(&pid) {
-            self.selection.insert(pid);
+        if !self.selection.remove(&id) {
+            self.selection.insert(id.clone());
         }
-        self.selected = Some(pid);
-        self.anchor = Some(RowId::Pid(pid));
-        self.cursor = Some(RowId::Pid(pid));
+        self.selected = match &id {
+            RowId::Pid(pid) => Some(*pid),
+            RowId::Group(_) => None,
+        };
+        self.anchor = Some(id.clone());
+        self.cursor = Some(id);
     }
 
-    /// Select every process from the anchor to `to`, in the current row order.
+    /// Select every row from the anchor to `to`, in the current row order.
     fn extend_selection(&mut self, to: RowId) {
         let from = self
             .anchor
@@ -1091,13 +1196,7 @@ impl OtmApp {
             return self.set_cursor(Some(to));
         };
         let (lo, hi) = (a.min(b), a.max(b));
-        self.selection = self.rows[lo..=hi]
-            .iter()
-            .filter_map(|r| match r {
-                Row::Process { info, .. } => Some(info.pid),
-                Row::Group { .. } => None,
-            })
-            .collect();
+        self.selection = self.rows[lo..=hi].iter().map(Row::id).collect();
         self.selected = match &to {
             RowId::Pid(pid) => Some(*pid),
             RowId::Group(_) => None,
@@ -1105,16 +1204,9 @@ impl OtmApp {
         self.cursor = Some(to);
     }
 
-    /// ⌘A on the process table: every process row on screen.
+    /// ⌘A on the process table: every row on screen, processes and groups alike.
     pub fn select_all_processes(&mut self) {
-        self.selection = self
-            .rows
-            .iter()
-            .filter_map(|r| match r {
-                Row::Process { info, .. } => Some(info.pid),
-                Row::Group { .. } => None,
-            })
-            .collect();
+        self.selection = self.rows.iter().map(Row::id).collect();
     }
 
     /// Esc with several processes selected: keep only the cursor row. Returns whether it did.
@@ -1191,11 +1283,14 @@ impl OtmApp {
         } else {
             self.snapshot.processes.len()
         };
+        self.scope = filter
+            .is_active()
+            .then(|| filter_scope(&self.snapshot.processes, &filter));
         self.rows = Rc::new(build_rows_filtered(
             &self.snapshot.processes,
             &self.layout,
             &filter,
-            &self.collapsed,
+            self.folds(),
         ));
     }
 
@@ -1625,7 +1720,7 @@ impl OtmApp {
                 // A group is a node in the same tree: same row, same indent and disclosure chevron in the Name
                 // column, its totals in the CPU and Memory columns.
                 let id = RowId::Group(key.clone());
-                let selected = self.cursor.as_ref() == Some(&id);
+                let selected = self.selection.contains(&id);
                 let tree_col = self.tree_column();
                 let (depth, collapsed) = (*depth, *collapsed);
                 let row_selector = format!("group-row-{key}");
@@ -1642,7 +1737,10 @@ impl OtmApp {
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                            this.set_cursor(Some(menu_id.clone()));
+                            // Right-clicking inside the selection keeps it; anywhere else selects that row.
+                            if !this.selection.contains(&menu_id) {
+                                this.set_cursor(Some(menu_id.clone()));
+                            }
                             this.context_menu = Some((menu_id.clone(), ev.position));
                             window.focus(&this.focus);
                             cx.notify();
@@ -1757,8 +1855,8 @@ impl OtmApp {
                             })
                         }
                     }))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.set_cursor(Some(id.clone()));
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                        this.click_row(id.clone(), ev.modifiers());
                         window.focus(&this.focus);
                         cx.notify();
                     }))
@@ -1772,7 +1870,7 @@ impl OtmApp {
                 tree_memory,
             } => {
                 let pid = info.pid;
-                let selected = self.selection.contains(&pid);
+                let selected = self.selection.contains(&RowId::Pid(pid));
                 let tree = self.layout.group_by != GroupBy::None;
                 let tree_col = self.tree_column();
                 let (depth, descendants, collapsed, tree_memory) =
@@ -1791,7 +1889,7 @@ impl OtmApp {
                         MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                             // Right-clicking inside the selection keeps it; anywhere else selects that row.
-                            if !this.selected_pids().contains(&pid) {
+                            if !this.selection.contains(&RowId::Pid(pid)) {
                                 this.set_cursor(Some(RowId::Pid(pid)));
                             }
                             this.context_menu = Some((RowId::Pid(pid), ev.position));
