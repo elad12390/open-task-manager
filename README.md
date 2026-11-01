@@ -5,7 +5,7 @@
 <h1 align="center">Open Task Manager</h1>
 
 <p align="center">
-  A fast, native, open-source system monitor for macOS, written in Rust with <a href="https://gpui.rs">GPUI</a>.<br>
+  A fast, native, open-source system monitor for macOS and Linux, written in Rust with <a href="https://gpui.rs">GPUI</a>.<br>
   Everything runs locally. Nothing is sent anywhere.
 </p>
 
@@ -13,6 +13,7 @@
   <a href="https://github.com/elad12390/open-task-manager/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-3E7BFA" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-1D1D1F?logo=apple&logoColor=white" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/Linux-Flatpak%20%7C%20.deb-FCC624?logo=linux&logoColor=black" alt="Linux: Flatpak and .deb">
   <a href="https://elad12390.github.io/open-task-manager/"><img src="https://img.shields.io/badge/website-online-5FF5E0" alt="Website"></a>
 </p>
 
@@ -20,7 +21,7 @@
   <img src="assets/demo/overview.gif" width="100%" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
 </p>
 
-<sub>All recordings use the app's demo mode, which shows a fictional Mac.</sub>
+<sub>All recordings use the app's demo mode, which shows a fictional Mac (and a fictional PC on Linux).</sub>
 
 ---
 
@@ -83,29 +84,32 @@ cargo run --release              # run it
 - **Memory sums per branch** (Σ) so you can see what a whole app with all its helpers costs.
 - **Dynamic filters** with autocomplete: chips for app, user, category, state, CPU and memory thresholds.
 - **Configurable columns**: show/hide, reorder by dragging, resize, sort; scroll sideways to reach every column.
-- **Multi-selection**: ⌘-click, Shift-click, Shift+arrows and ⌘A in every table; actions apply to the whole selection.
+- **Multi-selection**: ⌘-click (Ctrl-click on Linux), Shift-click, Shift+arrows and ⌘A / Ctrl+A in every table;
+  actions apply to the whole selection.
 - **Holiday themes**: 21 holidays, applied automatically around each date (or pick one in Settings).
 - **Double-click a column divider** to fit the column; overlay scrollbars wherever content overflows.
 - **Every table sorts and filters**: click any header to sort (numbers biggest first, click again to reverse);
   the filter searches every column and suggests each column's values as chips. Shortened text shows its full value on hover.
 - **App icons** next to processes and owner groups.
-- **Right-click actions**: Quit, Force quit (asks first), Force quit with children, Suspend/Resume, Show in Finder,
-  Show Connections, Copy PID/path/info. Mass-quitting the operating system's own processes is disabled.
+- **Right-click actions**: Quit, Force quit (asks first), Force quit with children, Suspend/Resume, Show in Finder
+  (or your Linux file manager), Show Connections, Copy PID/path/info. Mass-quitting the operating system's own
+  processes is disabled; on Linux, acting on another user's process asks polkit for your password each time.
 - **Keyboard navigation**: ↑↓, Page Up/Down, Home/End, ← → to fold and unfold, Space to toggle, ⌥→ to open a whole branch.
   Folding a branch folds everything inside it.
 - **Overview** (CPU, memory, network, disk, per-core load, system info), **Users**, **Connections**, **Power & thermal**,
-  **Startup items** (enable/disable your own launch agents), **Services** (restart/stop), **Installed apps**
-  (uninstall to the Trash), **Disk space** (largest folders, scan history), **Benchmarks** (CPU single/all cores,
+  **Startup items** (your launch agents on macOS; XDG autostart entries and systemd user units on Linux),
+  **Services** (launchd or systemd: restart/stop), **Installed apps** (uninstall to the Trash on macOS; with
+  Flatpak, Snap, apt or dnf on Linux), **Disk space** (largest folders, scan history), **Benchmarks** (CPU single/all cores,
   memory bandwidth, uncached disk), **Flight recorder** (record, save, replay), **Settings**.
 - **Popout** always-on-top mini monitor and a full-screen **screensaver** (F12).
-- A complete macOS menu bar with an **Update** menu (every 1/2/5/10 s, pause with ⌥⌘P, update now) and
-  Quit process (⌥⌘Q) / Force quit process.
-- Liquid-Glass styling that follows light/dark mode, with text size and high-contrast options.
+- A complete menu with an **Update** menu (every 1/2/5/10 s, pause with ⌥⌘P, update now) and
+  Quit process (⌥⌘Q) / Force quit process; Linux uses Ctrl where macOS uses ⌘.
+- Liquid-Glass styling on macOS that follows light/dark mode, with text size and high-contrast options on both systems.
 
 ### A real process tree
 
-launchd at the root, with the operating system's processes and yours in separate branches. Folding a branch folds
-everything inside it; unfolding opens one level at a time.
+launchd (macOS) or systemd (Linux) at the root, with the operating system's processes and yours in separate
+branches. Folding a branch folds everything inside it; unfolding opens one level at a time.
 
 <img src="assets/demo/process-tree.gif" width="100%" alt="Folding and unfolding the process tree">
 
@@ -125,13 +129,14 @@ Show and hide columns, drag headers to reorder, drag edges to resize, and scroll
 
 Type and pick from suggestions to add chips for an app, user, category or state, or a threshold like `cpu>5` or
 `mem>1g`. Chips of the same kind widen the filter (Chrome *or* Firefox); different kinds narrow it (and above 5% CPU).
-<kbd>⌘F</kbd> to focus, <kbd>⏎</kbd> to add, <kbd>⌫</kbd> to remove the last chip, <kbd>Esc</kbd> to clear.
+<kbd>⌘F</kbd> (<kbd>Ctrl</kbd>+<kbd>F</kbd> on Linux) to focus, <kbd>⏎</kbd> to add, <kbd>⌫</kbd> to remove the last chip, <kbd>Esc</kbd> to clear.
 
 <img src="assets/demo/filters.gif" width="100%" alt="Adding app and CPU filter chips from autocomplete suggestions">
 
 ### Right-click actions
 
-Quit, force quit, suspend, reveal in Finder, show connections or copy details, for one process or a whole app.
+Quit, force quit, suspend, reveal in Finder or your file manager, show connections or copy details, for one process
+or a whole app.
 
 <img src="assets/demo/context-menu.gif" width="100%" alt="The right-click menu and force quitting a process">
 
@@ -148,11 +153,20 @@ Startup items, services, connections, installed apps, disk space, power, benchma
 
 <img src="assets/demo/pages.gif" width="100%" alt="A tour of the other pages">
 
+### On Linux
+
+The same app on Linux: systemd and kernel threads as the operating system, desktop apps (Flatpak and Snap included)
+under their own branches, icons from your icon theme. Install it as a Flatpak or a `.deb`.
+
+<img src="packaging/linux/screenshots/process-tree.png" width="100%" alt="Open Task Manager on Linux: the process tree under systemd with Chrome, VS Code, Firefox and Spotify">
+
 ## Privacy
 
-Open Task Manager reads system information with macOS APIs and standard tools (`ps`, `lsof`, `launchctl`, `pmset`,
-`du`). It has no telemetry, makes no network requests, and stores its settings, layouts, scans and recordings only
-in `~/Library/Application Support/OpenTaskManager`.
+Open Task Manager reads system information with the system's own interfaces and standard tools: macOS APIs, `ps`,
+`lsof`, `launchctl` and `pmset` on macOS; `/proc`, `/sys`, `systemctl` and `ss` on Linux. It has no
+telemetry and makes no network requests (the Flatpak has no network access at all). It stores its settings, layouts,
+scans and recordings only in `~/Library/Application Support/OpenTaskManager` on macOS and
+`~/.local/share/OpenTaskManager` on Linux.
 
 ## Development
 

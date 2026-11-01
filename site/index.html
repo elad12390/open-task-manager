@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Open Task Manager — a native, open-source system monitor for macOS</title>
-  <meta name="description" content="A fast, native, open-source system monitor for macOS written in Rust. Process tree, memory per app, right-click actions, keyboard navigation. Local-only, no telemetry.">
+  <title>Open Task Manager — a native, open-source system monitor for macOS and Linux</title>
+  <meta name="description" content="A fast, native, open-source system monitor for macOS and Linux written in Rust. Process tree, memory per app, right-click actions, keyboard navigation. Local-only, no telemetry.">
   <link rel="icon" type="image/png" href="icon.png">
   <meta property="og:title" content="Open Task Manager">
-  <meta property="og:description" content="A fast, native, open-source system monitor for macOS.">
+  <meta property="og:description" content="A fast, native, open-source system monitor for macOS and Linux.">
   <meta property="og:image" content="icon.png">
   <style>
     :root {
@@ -95,22 +95,23 @@
       <p class="note">Homebrew: <code>brew install --cask elad12390/tap/open-task-manager</code> · all files on the
         <a href="https://github.com/elad12390/open-task-manager/releases/latest">latest release</a></p>
       <img class="shot" src="demo/overview.gif" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
-      <p class="shot-note">Recorded in the app's demo mode, which shows a fictional Mac.</p>
+      <p class="shot-note">Recorded in the app's demo mode, which shows a fictional Mac (and a fictional PC on Linux).</p>
     </section>
 
     <h2>Everything you expect from a task manager — and more</h2>
     <div class="grid">
       <div class="card"><div class="glyph">⌥</div><h3>A real process tree</h3>
-        <p>launchd at the root, the operating system's processes and yours in separate branches, grouped by
-          subsystem and by the app that owns them.</p></div>
+        <p>launchd or systemd at the root, the operating system's processes and yours in separate branches,
+          grouped by subsystem and by the app that owns them, Flatpak and Snap apps included.</p></div>
       <div class="card"><div class="glyph">Σ</div><h3>Memory per app</h3>
         <p>Every branch sums its whole subtree, so a browser and all its helpers show up as one number.</p></div>
       <div class="card"><div class="glyph">⌕</div><h3>Dynamic filters</h3>
         <p>Autocomplete chips for apps, users, categories and states, plus <code>cpu&gt;5</code> and
           <code>mem&gt;1g</code> thresholds.</p></div>
       <div class="card"><div class="glyph">⌘</div><h3>Right-click actions</h3>
-        <p>Quit, force quit (with children), suspend and resume, show in Finder, show connections, copy details.
-          macOS's own processes are protected.</p></div>
+        <p>Quit, force quit (with children), suspend and resume, show in Finder or your file manager, show
+          connections, copy details. The system's own processes are protected; on Linux, another user's process asks
+          polkit first.</p></div>
       <div class="card"><div class="glyph">⇅</div><h3>Keyboard first</h3>
         <p><kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>←</kbd> <kbd>→</kbd> to fold, <kbd>Space</kbd> to toggle,
           <kbd>⌥</kbd><kbd>→</kbd> to open a whole branch. Folding folds everything inside.</p></div>
@@ -120,11 +121,13 @@
         <p>Overview, per-core load, network, disk space with scan history, power and thermal state, users and
           open connections.</p></div>
       <div class="card"><div class="glyph">⏻</div><h3>Manage startup and services</h3>
-        <p>Enable or disable your launch agents, restart or stop services, uninstall apps to the Trash.</p></div>
+        <p>Enable or disable launch agents (macOS) or autostart entries and systemd user units (Linux), restart or
+          stop services, and uninstall apps: to the Trash on macOS, with their own package manager on Linux.</p></div>
       <div class="card"><div class="glyph">●</div><h3>Record and benchmark</h3>
         <p>A flight recorder you can replay, and CPU, memory and uncached disk benchmarks.</p></div>
       <div class="card"><div class="glyph">◐</div><h3>Native and light</h3>
-        <p>Rust and GPUI, Liquid-Glass styling, light and dark mode, a popout mini monitor and a screensaver.</p></div>
+        <p>Rust and GPUI on both systems, Liquid-Glass styling on macOS, light and dark mode, a popout mini monitor
+          and a screensaver.</p></div>
     </div>
 
     <h2>See it in action</h2>
@@ -143,11 +146,13 @@
         <figcaption><strong>Keyboard first</strong>Move, fold, unfold and jump without touching the mouse.</figcaption></figure>
       <figure><img loading="lazy" src="demo/pages.gif" alt="A tour of the other pages">
         <figcaption><strong>Everything else</strong>Startup items, services, connections, apps, disk space, power, benchmarks and more.</figcaption></figure>
+      <figure><img loading="lazy" src="linux/process-tree.png" alt="Open Task Manager on Linux: the process tree under systemd with Chrome, VS Code, Firefox and Spotify">
+        <figcaption><strong>On Linux too</strong>systemd and kernel threads as the operating system, every app under its own branch. As a Flatpak or a .deb.</figcaption></figure>
     </div>
 
     <h2>Private by design</h2>
     <p class="privacy">No telemetry, no accounts, no network requests. Open Task Manager reads your system with
-      macOS's own tools and keeps its settings on your Mac.</p>
+      its own tools and keeps its settings on your computer. The Flatpak has no network access at all.</p>
   </main>
 
   <footer>
