@@ -185,6 +185,8 @@ impl Sampler {
             .system
             .processes()
             .values()
+            // sysinfo also lists every thread (task) as a process on Linux; they'd repeat its memory.
+            .filter(|p| p.thread_kind().is_none())
             .map(|p| {
                 (
                     p.pid().as_u32(),

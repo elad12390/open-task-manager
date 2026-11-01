@@ -35,7 +35,9 @@ impl Report {
 /// A bare container or minimal system (a package install test), not a desktop session: the checks
 /// that need a populated system are skipped there instead of failing.
 fn minimal_system(processes: usize) -> bool {
-    processes < 20
+    // Real processes only (threads aren't rows): a desktop session runs well over 50, a bare VM or container
+    // a few dozen.
+    processes <= 50
 }
 
 pub fn run() -> i32 {

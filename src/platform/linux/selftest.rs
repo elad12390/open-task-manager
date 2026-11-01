@@ -75,6 +75,32 @@ pub fn app_checks(r: &mut Report, snap: &Snapshot) {
         format!("reading /etc/os-release through the {route} route"),
     );
 
+    // Every row is a process, not one of its threads: a thread's Tgid is its process's pid.
+    let threads: Vec<u32> = snap
+        .processes
+        .iter()
+        .filter(|p| {
+            host::read(format!("/proc/{}/status", p.pid)).is_ok_and(|status| {
+                status
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Tgid:"))
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .is_some_and(|tgid| tgid != p.pid)
+            })
+        })
+        .map(|p| p.pid)
+        .collect();
+    r.check(
+        "no threads as processes",
+        threads.is_empty(),
+        format!(
+            "{} of {} rows are threads: {:?}",
+            threads.len(),
+            snap.processes.len(),
+            &threads[..threads.len().min(5)]
+        ),
+    );
+
     let owners = categories::owners(&snap.processes);
     let me = super::own_pid();
     let mine = owners.get(&me).cloned().unwrap_or_default();
