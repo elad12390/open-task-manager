@@ -79,20 +79,21 @@
     <section class="hero">
       <img class="logo" src="icon.png" alt="Open Task Manager app icon">
       <h1>Open Task Manager</h1>
-      <p class="tagline">A fast, native, open-source system monitor for macOS. See every process as a tree,
+      <p class="tagline">A fast, native, open-source system monitor for macOS and Linux. See every process as a tree,
         what each app really costs, and act on it — all locally.</p>
 
       <div class="install">
-        <span id="cmd">brew install --cask elad12390/tap/open-task-manager</span>
+        <span id="cmd">curl -fsSL https://elad12390.github.io/open-task-manager/install.sh | sh</span>
         <button id="copy" type="button">Copy</button>
       </div>
 
       <div class="actions">
-        <a class="btn primary" href="https://github.com/elad12390/open-task-manager/releases/latest">Download DMG</a>
+        <a class="btn primary" id="download" href="https://github.com/elad12390/open-task-manager/releases/latest">Download</a>
         <a class="btn" href="https://github.com/elad12390/open-task-manager">View source on GitHub</a>
       </div>
-      <p class="note">macOS 13 or later · Apple silicon and Intel · Apache-2.0</p>
-      <p class="note">Linux: <code>sudo apt install ./open-task-manager_&lt;version&gt;-1_&lt;arch&gt;.deb</code> or the <code>.flatpak</code> from the <a href="https://github.com/elad12390/open-task-manager/releases/latest">latest release</a></p>
+      <p class="note" id="others">macOS 13 or later (Apple silicon and Intel) · Linux x86_64 and arm64 · Apache-2.0</p>
+      <p class="note">Homebrew: <code>brew install --cask elad12390/tap/open-task-manager</code> · all files on the
+        <a href="https://github.com/elad12390/open-task-manager/releases/latest">latest release</a></p>
       <img class="shot" src="demo/overview.gif" alt="Open Task Manager: the process list, process tree, app grouping and the other pages">
       <p class="shot-note">Recorded in the app's demo mode, which shows a fictional Mac.</p>
     </section>
@@ -161,6 +162,49 @@
       e.target.textContent = "Copied";
       setTimeout(() => (e.target.textContent = "Copy"), 1500);
     });
+
+    // The Download button picks the file for this computer from the latest release.
+    (async () => {
+      const button = document.getElementById("download");
+      const others = document.getElementById("others");
+      const ua = navigator.userAgent;
+      const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+      const os = /mac/i.test(platform) || /Mac OS X/.test(ua) ? "mac"
+        : /linux/i.test(platform) || /Linux/.test(ua) && !/Android/.test(ua) ? "linux"
+        : /win/i.test(platform) || /Windows/.test(ua) ? "windows" : "other";
+      let arm = /aarch64|arm64|armv8/i.test(platform + " " + ua);
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        try {
+          const hints = await navigator.userAgentData.getHighEntropyValues(["architecture"]);
+          if (hints.architecture) arm = hints.architecture === "arm";
+        } catch (_) {}
+      }
+      if (os === "windows" || os === "other") {
+        button.textContent = "Download for macOS or Linux";
+        others.textContent = "Open Task Manager runs on macOS and Linux; there is no Windows version yet.";
+        return;
+      }
+      let assets;
+      try {
+        const res = await fetch("https://api.github.com/repos/elad12390/open-task-manager/releases/latest");
+        if (!res.ok) return;
+        assets = (await res.json()).assets.filter((a) => !a.name.endsWith(".sha256"));
+      } catch (_) {
+        return; // keep the link to the release page
+      }
+      const find = (re) => assets.find((a) => re.test(a.name));
+      const pick = os === "mac"
+        ? [find(/\.dmg$/), "macOS"]
+        : [find(arm ? /_arm64\.deb$/ : /_amd64\.deb$/), "Linux (.deb, " + (arm ? "arm64" : "x86_64") + ")"];
+      if (!pick[0]) return;
+      button.href = pick[0].browser_download_url;
+      button.textContent = "Download for " + pick[1];
+      if (os === "linux") {
+        const flatpak = find(arm ? /aarch64\.flatpak$/ : /x86_64\.flatpak$/);
+        others.innerHTML = "Debian and Ubuntu: open the .deb, or <code>sudo apt install ./" + pick[0].name + "</code>" +
+          (flatpak ? " · any distribution: <a href=\"" + flatpak.browser_download_url + "\">Flatpak</a>" : "");
+      }
+    })();
   </script>
 </body>
 </html>
