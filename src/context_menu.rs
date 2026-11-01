@@ -123,7 +123,10 @@ impl OtmApp {
             Item {
                 enabled: n > 0,
                 ..item(
-                    format!("Quit {n} processes{note}"),
+                    format!(
+                        "Quit {n} {}{note}",
+                        crate::ui::plural(n, "Process", "Processes")
+                    ),
                     Cmd::Signal {
                         pids: pids.clone(),
                         sig: libc::SIGTERM,
@@ -135,7 +138,10 @@ impl OtmApp {
                 danger: true,
                 enabled: n > 0,
                 ..item(
-                    format!("Force quit {n} processes{note}…"),
+                    format!(
+                        "Force Quit {n} {}{note}…",
+                        crate::ui::plural(n, "Process", "Processes")
+                    ),
                     Cmd::Signal {
                         pids,
                         sig: libc::SIGKILL,
@@ -145,7 +151,7 @@ impl OtmApp {
             },
             separator(),
             item(
-                format!("Copy {rows} rows"),
+                format!("Copy {rows} {}", crate::ui::plural(rows, "Row", "Rows")),
                 Cmd::Copy("rows", self.selection_lines()),
             ),
             item("Copy PIDs", Cmd::Copy("PIDs", pid_list)),
@@ -196,7 +202,7 @@ impl OtmApp {
                 items.push(Item {
                     danger: true,
                     ..item(
-                        "Force quit…",
+                        "Force Quit…",
                         Cmd::Signal {
                             pids: vec![p.pid],
                             sig: libc::SIGKILL,
@@ -210,7 +216,11 @@ impl OtmApp {
                     items.push(Item {
                         danger: true,
                         ..item(
-                            format!("Force quit with {} children…", below.len()),
+                            format!(
+                                "Force Quit with {} {}…",
+                                below.len(),
+                                crate::ui::plural(below.len(), "Child", "Children")
+                            ),
                             Cmd::Signal {
                                 pids: all,
                                 sig: libc::SIGKILL,
@@ -227,7 +237,7 @@ impl OtmApp {
                 if let Some(bundle) = bundle_of(&p.path) {
                     items.push(item("Show App in Finder", Cmd::Reveal(bundle)));
                 }
-                items.push(item("Show connections", Cmd::Connections(p.name.clone())));
+                items.push(item("Show Connections", Cmd::Connections(p.name.clone())));
                 if !p.owner_app.is_empty() && !self.chips.contains(&Chip::App(p.owner_app.clone()))
                 {
                     items.push(item(
@@ -242,7 +252,7 @@ impl OtmApp {
                     ..item("Copy Path", Cmd::Copy("path", p.path.clone()))
                 });
                 items.push(item(
-                    "Copy info",
+                    "Copy Info",
                     Cmd::Copy(
                         "info",
                         format!(
@@ -287,7 +297,7 @@ impl OtmApp {
                     Item {
                         enabled: !system && n > 0,
                         ..item(
-                            format!("Quit all {n}"),
+                            format!("Quit All {n}"),
                             Cmd::Signal {
                                 pids: pids.clone(),
                                 sig: libc::SIGTERM,
@@ -299,7 +309,7 @@ impl OtmApp {
                         danger: true,
                         enabled: !system && n > 0,
                         ..item(
-                            format!("Force quit all {n}…"),
+                            format!("Force Quit All {n}…"),
                             Cmd::Signal {
                                 pids,
                                 sig: libc::SIGKILL,
@@ -313,7 +323,7 @@ impl OtmApp {
                     items.push(item("Show App in Finder", Cmd::Reveal(bundle.clone())));
                 }
                 items.push(separator());
-                items.push(item("Copy name", Cmd::Copy("name", label)));
+                items.push(item("Copy Name", Cmd::Copy("name", label)));
                 let folded = self.folds().contains(key);
                 items.push(item(
                     if folded { "Unfold" } else { "Fold" },
@@ -333,7 +343,11 @@ impl OtmApp {
             .collect();
         let title = match names.as_slice() {
             [one] => format!("Force quit “{one}”?"),
-            _ => format!("Force quit {} processes?", pids.len()),
+            _ => format!(
+                "Force quit {} {}?",
+                pids.len(),
+                crate::ui::plural(pids.len(), "process", "processes")
+            ),
         };
         let detail = "Unsaved changes will be lost.".to_string();
         self.confirm = Some(Confirm {
@@ -378,7 +392,10 @@ impl OtmApp {
                     let n = pids.len();
                     self.demo_kill(&pids);
                     self.notice = Some((
-                        format!("{verb} {n} process{}", if n == 1 { "" } else { "es" }),
+                        format!(
+                            "{verb} {n} {}",
+                            crate::ui::plural(n, "process", "processes")
+                        ),
                         false,
                     ));
                     cx.notify();
@@ -396,7 +413,10 @@ impl OtmApp {
                     move |app, errors, _| {
                         app.notice = Some(if errors.is_empty() {
                             (
-                                format!("{verb} {n} process{}", if n == 1 { "" } else { "es" }),
+                                format!(
+                                    "{verb} {n} {}",
+                                    crate::ui::plural(n, "process", "processes")
+                                ),
                                 false,
                             )
                         } else {
@@ -556,7 +576,7 @@ impl OtmApp {
                                     .cursor_pointer()
                                     .bg(gpui::rgb(0xc4001a))
                                     .text_color(gpui::white())
-                                    .child("Force quit")
+                                    .child("Force Quit")
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.confirm = None;
                                         this.run_context_signal(

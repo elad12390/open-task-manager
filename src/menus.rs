@@ -125,8 +125,8 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action("Hide Open Task Manager", Hide),
-                MenuItem::action("Hide others", HideOthers),
-                MenuItem::action("Show all", ShowAll),
+                MenuItem::action("Hide Others", HideOthers),
+                MenuItem::action("Show All", ShowAll),
                 MenuItem::separator(),
                 MenuItem::action("Quit Open Task Manager", Quit),
             ],
@@ -136,30 +136,30 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(
                     if s.recording {
-                        "Stop and save"
+                        "Stop and Save"
                     } else {
-                        "Start recording"
+                        "Start Recording"
                     },
                     ToggleRecording,
                 ),
-                MenuItem::action("Show recordings folder", ShowRecordingsFolder),
+                MenuItem::action("Show Recordings Folder", ShowRecordingsFolder),
                 MenuItem::separator(),
                 MenuItem::action("Export as CSV", ExportProcesses),
                 MenuItem::separator(),
-                MenuItem::action("Close window", CloseWindow),
+                MenuItem::action("Close Window", CloseWindow),
             ],
         },
         Menu {
             name: "Edit".into(),
             items: vec![
-                MenuItem::action("Copy selected", CopySelected),
-                MenuItem::action("Select all", SelectAll),
+                MenuItem::action("Copy Selected", CopySelected),
+                MenuItem::action("Select All", SelectAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit process", QuitProcess),
-                MenuItem::action("Force quit process…", ForceQuitProcess),
+                MenuItem::action("Quit Process", QuitProcess),
+                MenuItem::action("Force Quit Process…", ForceQuitProcess),
                 MenuItem::separator(),
                 MenuItem::action("Find", Find),
-                MenuItem::action("Clear filter", ClearFilter),
+                MenuItem::action("Clear Filter", ClearFilter),
             ],
         },
         Menu {
@@ -178,7 +178,7 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 page(Page::Recorder, Box::new(ShowRecorder)),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
-                    name: "Group by".into(),
+                    name: "Group By".into(),
                     items: vec![
                         MenuItem::action(check(s.group_by == GroupBy::None, "None"), GroupNone),
                         MenuItem::action(check(s.group_by == GroupBy::App, "Owner"), GroupOwner),
@@ -209,35 +209,35 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                         ),
                     ],
                 }),
-                MenuItem::action(check(s.high_contrast, "High contrast"), ToggleHighContrast),
+                MenuItem::action(check(s.high_contrast, "High Contrast"), ToggleHighContrast),
                 MenuItem::separator(),
-                MenuItem::action("Bigger text", TextBigger),
-                MenuItem::action("Smaller text", TextSmaller),
-                MenuItem::action("Actual size", TextActual),
+                MenuItem::action("Bigger Text", TextBigger),
+                MenuItem::action("Smaller Text", TextSmaller),
+                MenuItem::action("Actual Size", TextActual),
             ],
         },
         Menu {
             name: "Update".into(),
             items: vec![
                 MenuItem::action(
-                    check(s.refresh_secs == 1 && !s.paused, "Every second"),
+                    check(s.refresh_secs == 1 && !s.paused, "Every Second"),
                     Every1s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 2 && !s.paused, "Every 2 seconds"),
+                    check(s.refresh_secs == 2 && !s.paused, "Every 2 Seconds"),
                     Every2s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 5 && !s.paused, "Every 5 seconds"),
+                    check(s.refresh_secs == 5 && !s.paused, "Every 5 Seconds"),
                     Every5s,
                 ),
                 MenuItem::action(
-                    check(s.refresh_secs == 10 && !s.paused, "Every 10 seconds"),
+                    check(s.refresh_secs == 10 && !s.paused, "Every 10 Seconds"),
                     Every10s,
                 ),
                 MenuItem::separator(),
-                MenuItem::action(check(s.paused, "Pause updates"), TogglePause),
-                MenuItem::action("Update now", UpdateNow),
+                MenuItem::action(check(s.paused, "Pause Updates"), TogglePause),
+                MenuItem::action("Update Now", UpdateNow),
             ],
         },
         Menu {
@@ -246,13 +246,13 @@ pub fn build(s: &MenuState) -> Vec<Menu> {
                 MenuItem::action("Minimize", Minimize),
                 MenuItem::action("Zoom", Zoom),
                 MenuItem::separator(),
-                MenuItem::action("Show popout", OpenPopout),
-                MenuItem::action("Start screensaver", OpenScreensaver),
+                MenuItem::action("Show Popout", OpenPopout),
+                MenuItem::action("Start Screensaver", OpenScreensaver),
             ],
         },
         Menu {
             name: "Help".into(),
-            items: vec![MenuItem::action("Show data folder", ShowDataFolder)],
+            items: vec![MenuItem::action("Show Data Folder", ShowDataFolder)],
         },
     ]
 }
@@ -374,7 +374,7 @@ impl OtmApp {
             crate::processes::Row::Process { info, .. } if n == 1 => {
                 format!("Copied info for {} (PID {})", info.name, info.pid)
             }
-            _ => format!("Copied {n} rows"),
+            _ => format!("Copied {n} {}", crate::ui::plural(n, "row", "rows")),
         };
         let text = self.selection_lines();
         cx.write_to_clipboard(ClipboardItem::new_string(text));

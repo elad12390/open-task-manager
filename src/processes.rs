@@ -1144,7 +1144,8 @@ impl OtmApp {
                     memory,
                     ..
                 } => format!(
-                    "{label}\t{count} processes\t{cpu:.1}%\t{}",
+                    "{label}\t{count} {}\t{cpu:.1}%\t{}",
+                    crate::ui::plural(*count, "process", "processes"),
                     crate::metrics::fmt_bytes(*memory)
                 ),
             })
@@ -1304,12 +1305,15 @@ impl OtmApp {
                     .text_color(color)
                     .child(crate::filter_bar::notice(msg, *err, color))
             }
-            None if self.filter_active() => div()
-                .text_color(t.text_dim)
-                .child(format!("{} of {count} processes", self.match_count)),
-            None => div()
-                .text_color(t.text_dim)
-                .child(format!("{count} processes")),
+            None if self.filter_active() => div().text_color(t.text_dim).child(format!(
+                "{} of {count} {}",
+                self.match_count,
+                ui::plural(count, "process", "processes")
+            )),
+            None => div().text_color(t.text_dim).child(format!(
+                "{count} {}",
+                ui::plural(count, "process", "processes")
+            )),
         };
         div()
             .flex()
@@ -1353,7 +1357,7 @@ impl OtmApp {
                             .tooltip(ui::tip("Quit selected processes")),
                     )
                     .child(
-                        ui::pill(t, "force-quit", "Force quit…", false)
+                        ui::pill(t, "force-quit", "Force Quit…", false)
                             .debug_selector(|| "force-quit".into())
                             .flex_shrink_0()
                             .text_color(t.hot)

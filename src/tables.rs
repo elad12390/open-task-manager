@@ -752,7 +752,7 @@ impl OtmApp {
                     .text_color(t.accent)
                     .cursor_pointer()
                     .hover(|h| h.bg(t.glass_hover))
-                    .child("Reset layout")
+                    .child("Reset Layout")
                     .on_click(cx.listener(move |this, _, _, cx| this.reset_columns(table, cx))),
             )
     }

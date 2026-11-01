@@ -874,7 +874,7 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
 
     // Force quit asks first: Esc (or Return, the default Cancel) leaves the process running.
     open_menu(cx);
-    click(cx, "ctx-Force quit…");
+    click(cx, "ctx-Force Quit…");
     assert!(
         cx.debug_bounds("confirm").is_some(),
         "the confirmation is shown"
@@ -889,7 +889,7 @@ fn right_click_menu_and_icons(cx: &mut TestAppContext) {
 
     // Confirming it ends the process.
     open_menu(cx);
-    click(cx, "ctx-Force quit…");
+    click(cx, "ctx-Force Quit…");
     click(cx, "confirm-force-quit");
     let mut status = None;
     for _ in 0..50 {
@@ -1020,7 +1020,7 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
     let checked: Vec<&String> = shown.iter().filter(|l| l.starts_with('✓')).collect();
     println!("checked items: {checked:?}");
     assert!(view.read_with(cx, |app, _| app.paused));
-    assert!(shown.contains(&"✓ Pause updates".to_string()));
+    assert!(shown.contains(&"✓ Pause Updates".to_string()));
     assert!(shown.contains(&"✓ Owner".to_string()));
     assert!(shown.contains(&"✓ Dark".to_string()));
     assert!(shown.contains(&"✓ Users".to_string()));
@@ -1033,7 +1033,7 @@ fn menu_bar_actions(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let shown = labels(&view.read_with(cx, |app, _| app.menu_state.clone().unwrap()));
     assert!(
-        shown.contains(&"Stop and save".to_string()),
+        shown.contains(&"Stop and Save".to_string()),
         "File menu offers Stop while recording"
     );
 

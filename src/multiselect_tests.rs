@@ -239,9 +239,9 @@ fn right_click_inside_selection_keeps_it_and_menu_covers_it(cx: &mut TestAppCont
             .collect()
     });
     for expected in [
-        "Quit 2 processes",
-        "Force quit 2 processes…",
-        "Copy 2 rows",
+        "Quit 2 Processes",
+        "Force Quit 2 Processes…",
+        "Copy 2 Rows",
         "Copy PIDs",
     ] {
         assert!(

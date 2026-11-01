@@ -908,10 +908,10 @@ impl OtmApp {
                 None => groups.push((b.label, b.danger, vec![b.action.clone()])),
             }
         }
-        let noun = match self.page {
-            Page::Startup => "startup items",
-            Page::Services => "services",
-            _ => "items",
+        let (noun_one, noun_many) = match self.page {
+            Page::Startup => ("startup item", "startup items"),
+            Page::Services => ("service", "services"),
+            _ => ("item", "items"),
         };
         let mut out: Vec<AnyElement> = Vec::new();
         for (i, (label, danger_btn, actions)) in groups.into_iter().enumerate() {
@@ -924,7 +924,7 @@ impl OtmApp {
                 other => other,
             };
             let batch = Action::Batch {
-                what: format!("{past} {count} {noun}"),
+                what: format!("{past} {count} {}", ui::plural(count, noun_one, noun_many)),
                 actions,
             };
             out.push(
@@ -1015,7 +1015,10 @@ impl OtmApp {
                         div()
                             .text_base()
                             .font_weight(FontWeight::BOLD)
-                            .child(format!("Move {n} apps to the Trash?")),
+                            .child(format!(
+                                "Move {n} {} to the Trash?",
+                                ui::plural(n, "app", "apps")
+                            )),
                     )
                     .child(
                         div()
@@ -1050,7 +1053,10 @@ impl OtmApp {
                                             .collect();
                                         this.perform(
                                             Action::Batch {
-                                                what: format!("Moved {n} apps to the Trash"),
+                                                what: format!(
+                                                    "Moved {n} {} to the Trash",
+                                                    ui::plural(n, "app", "apps")
+                                                ),
                                                 actions,
                                             },
                                             cx,
@@ -1317,7 +1323,7 @@ impl OtmApp {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Largest folders"),
+                            .child("Largest Folders"),
                     )
                     .when(latest.is_some(), |d| {
                         d.child(self.columns_button(t, "folders", cx).mr_2())
@@ -1329,7 +1335,7 @@ impl OtmApp {
                             if self.scanning {
                                 "Scanning…"
                             } else {
-                                "Scan now"
+                                "Scan Now"
                             },
                             self.scanning,
                         )
@@ -1374,7 +1380,7 @@ impl OtmApp {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Scan history"),
+                            .child("Scan History"),
                     )
                     .when(!self.scans.is_empty(), |d| {
                         d.child(self.columns_button(t, "scans", cx).mr_2())
@@ -1562,7 +1568,7 @@ impl OtmApp {
                         if self.benching {
                             "Running… (about 20 s)"
                         } else {
-                            "Run benchmarks"
+                            "Run Benchmarks"
                         },
                         self.benching,
                     )
@@ -1647,12 +1653,12 @@ impl OtmApp {
                     .gap_2()
                     .items_center()
                     .child(match recording {
-                        None => ui::pill_icon(t, "rec", "circle", "Start recording", false)
+                        None => ui::pill_icon(t, "rec", "circle", "Start Recording", false)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.recording = Some(Vec::new());
                                 cx.notify();
                             })),
-                        Some(_) => ui::pill_icon(t, "rec", "square", "Stop and save", true)
+                        Some(_) => ui::pill_icon(t, "rec", "square", "Stop and Save", true)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let frames = this.recording.take().unwrap_or_default();
                                 this.notice = Some(match recorder::save(frames) {
@@ -1670,12 +1676,10 @@ impl OtmApp {
                             })),
                     })
                     .when_some(recording, |d, n| {
-                        d.child(
-                            div()
-                                .text_xs()
-                                .text_color(t.hot)
-                                .child(format!("Recording · {n} frames")),
-                        )
+                        d.child(div().text_xs().text_color(t.hot).child(format!(
+                            "Recording · {n} {}",
+                            ui::plural(n, "frame", "frames")
+                        )))
                     }),
             )
             .child(scrollbar::scroll_area(
@@ -1694,8 +1698,9 @@ impl OtmApp {
                         d.child(
                             card(t)
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                                    "Replay · {} frames · peak CPU {peak:.0}%",
-                                    rec.frames.len()
+                                    "Replay · {} {} · peak CPU {peak:.0}%",
+                                    rec.frames.len(),
+                                    ui::plural(rec.frames.len(), "frame", "frames")
                                 )))
                                 .child(div().text_xs().text_color(t.text_dim).child("CPU"))
                                 .child(ui::sparkline(
