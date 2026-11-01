@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Open Task Manager
+GenericName=Task Manager
+Comment=Local-only system monitor for processes, services and resources
+Exec=otm
+Icon=io.github.elad12390.OpenTaskManager
+Terminal=false
+Categories=System;Monitor;
+Keywords=task;process;monitor;cpu;memory;services;
+StartupNotify=true
+StartupWMClass=otm

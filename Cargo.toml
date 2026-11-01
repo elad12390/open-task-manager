@@ -19,6 +19,29 @@ libc = "0.2"
 [dev-dependencies]
 gpui = { version = "0.2.2", features = ["runtime_shaders", "test-support"] }
 
+[package.metadata.deb]
+name = "open-task-manager"
+maintainer = "elad12390 <49613537+elad12390@users.noreply.github.com>"
+copyright = "2026 elad12390"
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+extended-description = "Open Task Manager is a local-only system monitor: processes, services, startup items, disk space, power and more. Nothing leaves your machine."
+depends = "$auto, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, libx11-xcb1, libxcb1, dbus, policykit-1"
+assets = [
+    ["target/release/otm", "usr/bin/otm", "755"],
+    ["packaging/linux/io.github.elad12390.OpenTaskManager.desktop", "usr/share/applications/io.github.elad12390.OpenTaskManager.desktop", "644"],
+    ["packaging/linux/io.github.elad12390.OpenTaskManager.metainfo.xml", "usr/share/metainfo/io.github.elad12390.OpenTaskManager.metainfo.xml", "644"],
+    ["packaging/linux/icons/hicolor/16x16/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/16x16/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/24x24/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/24x24/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/32x32/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/32x32/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/48x48/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/48x48/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/64x64/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/64x64/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/128x128/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/128x128/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/256x256/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/256x256/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+    ["packaging/linux/icons/hicolor/512x512/apps/io.github.elad12390.OpenTaskManager.png", "usr/share/icons/hicolor/512x512/apps/io.github.elad12390.OpenTaskManager.png", "644"],
+]
+
 [profile.dev]
 debug = 0
 

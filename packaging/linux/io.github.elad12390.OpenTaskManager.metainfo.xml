@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.elad12390.OpenTaskManager</id>
+  <name>Open Task Manager</name>
+  <summary>Local-only system monitor for processes and resources</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="io.github.elad12390">
+    <name>elad12390</name>
+  </developer>
+  <description>
+    <p>Open Task Manager shows the processes, services, startup items, disk space, power and resource use of your computer. It runs entirely on your machine and sends nothing anywhere.</p>
+  </description>
+  <launchable type="desktop-id">io.github.elad12390.OpenTaskManager.desktop</launchable>
+  <provides>
+    <binary>otm</binary>
+  </provides>
+  <url type="homepage">https://elad12390.github.io/open-task-manager/</url>
+  <url type="bugtracker">https://github.com/elad12390/open-task-manager/issues</url>
+  <url type="vcs-browser">https://github.com/elad12390/open-task-manager</url>
+  <content_rating type="oars-1.1"/>
+</component>
