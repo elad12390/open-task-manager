@@ -46,7 +46,7 @@ jobs:
       - name: Verify universal binary
         run: lipo -info "dist/Open Task Manager.app/Contents/MacOS/otm" | grep -q "x86_64 arm64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: OpenTaskManager-dmg
           path: dist/OpenTaskManager-${{ env.VERSION }}.dmg
@@ -129,7 +129,7 @@ jobs:
           DEB="$(ls open-task-manager_"$VERSION"-*_${{ matrix.arch }}.deb)"
           shasum -a 256 "$DEB" | tee "$DEB.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: deb-${{ matrix.arch }}
@@ -200,7 +200,7 @@ jobs:
           flatpak-builder-lint --exceptions --user-exceptions "$ex" appstream packaging/linux/io.github.elad12390.open_task_manager.OpenTaskManager.metainfo.xml
           flatpak-builder-lint --exceptions --user-exceptions "$ex" repo repo
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.arch }}
           path: OpenTaskManager-*.flatpak
@@ -241,7 +241,7 @@ jobs:
           BUNDLE="OpenTaskManager-$VERSION-${{ matrix.arch }}.flatpak"
           shasum -a 256 "$BUNDLE" | tee "$BUNDLE.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.arch }}-tested
           path: |
